@@ -2265,11 +2265,6 @@ var currentBizId=null;
 var currentBiz=()=>businesses.find(b=>b.id===currentBizId);
 
 // ── PERSISTENCE ─────────────────────────────────────
-var SB_DATA_KEY='sb_appdata';
-function saveData(){
-  try{localStorage.setItem(SB_DATA_KEY,JSON.stringify({businesses,currentBizId}));}
-  catch(e){console.warn('Ledgr: could not save data',e);}
-}
 // ── BRANCH DETAIL MODAL ───────────────────────────────
 var _viewingBranchCode=null;
 var _branchDetailTab='income';
@@ -2839,31 +2834,6 @@ function defaultTaxSettings(){
       accountCode:'2104', currency:'MWK'
     }
   ];
-}
-
-function loadData(){
-  try{
-    var raw=localStorage.getItem(SB_DATA_KEY);
-    if(!raw)return false;
-    var parsed=JSON.parse(raw);
-    if(parsed&&Array.isArray(parsed.businesses)&&parsed.businesses.length){
-      businesses=parsed.businesses;
-      currentBizId=parsed.currentBizId||parsed.businesses[0].id;
-      // Migration: backfill arrays on businesses created before these modules were added
-      var migrated=false;
-      businesses.forEach(function(b){
-        if(!Array.isArray(b.accounts)){b.accounts=defaultAccounts();migrated=true;}
-        if(!Array.isArray(b.movements)){b.movements=[];migrated=true;}
-        if(!Array.isArray(b.branches)){b.branches=defaultBranches();migrated=true;}
-        if(!Array.isArray(b.taxSettings)){b.taxSettings=defaultTaxSettings();migrated=true;}
-        if(!Array.isArray(b.taxTransactions)){b.taxTransactions=[];migrated=true;}
-        if(!Array.isArray(b.journal)){b.journal=[];migrated=true;}
-      });
-      if(migrated)saveData();
-      return true;
-    }
-  }catch(e){console.warn('Ledgr: could not load data',e);}
-  return false;
 }
 
 // ── TOASTS ────────────────────────────────────────────
@@ -7790,6 +7760,7 @@ document.addEventListener('keydown',function(e){
   if(e.key==='Escape')closeMobileSidebar();
 });
 
+// ── INIT ──────────────────────────────────────────────
 /**
  * LEDGR — Google Apps Script API Adapter
  * ═══════════════════════════════════════
@@ -8285,6 +8256,7 @@ async function showApp() {
   renderAll();
   setTimeout(checkTaxAlerts, 800);
 }
+
 </script>
 </body>
 </html>
