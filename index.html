@@ -6045,15 +6045,6 @@ async function verifyPassword(str, stored){
   return simpleHash(str)===stored;
 }
 
-// Seed demo user
-(function seedDemo(){
-  var users=getUsers();
-  if(!users.find(u=>u.email==='admin@ledgr.app')){
-    users.push({email:'admin@ledgr.app',hash:simpleHash('Admin@1234'),firstName:'Admin',lastName:'User',role:'accountant',created:new Date().toISOString()});
-    saveUsers(users);
-  }
-})();
-
 // ── SCREENS ───────────────────────────────────────────
 function showScreen(id){
   ['screen-login','screen-register','screen-2fa','screen-forgot'].forEach(s=>{
@@ -8081,7 +8072,7 @@ async function doForgot() {
   resetEmail  = email;
   resetCode   = String(Math.floor(100000 + Math.random() * 900000));
   resetExpiry = Date.now() + 600000;
-  setupResetOTPInputs(); startResetCountdown();
+  setupResetOTPInputs(); startResetOTP Countdown();
   document.getElementById('forgot-step1').style.display = 'none';
   document.getElementById('forgot-step2').style.display = 'block';
   document.getElementById('forgot-step2-sub').textContent = 'Reset code sent to ' + email;
