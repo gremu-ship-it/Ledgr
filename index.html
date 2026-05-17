@@ -7801,12 +7801,11 @@ async function api(action, params) {
   var token = getToken();
   if (token) params.token = token;
   try {
-    var res = await fetch(GAS_URL, {
+    var url = GAS_URL + '?action=' + encodeURIComponent(action);
+    var res = await fetch(url, {
       method:  'POST',
-      headers: {'Content-Type': 'application/json'},
-      body:    JSON.stringify(params),
-      // GAS Web Apps require no-cors OR the deployment must be "Anyone" with CORS.
-      // With "Execute as: Me, Access: Anyone" — fetch works fine on modern browsers.
+      headers: {'Content-Type': 'text/plain'},
+      body:    JSON.stringify(params)
     });
     if (!res.ok) return {ok: false, error: 'HTTP ' + res.status};
     return await res.json();
@@ -7815,7 +7814,6 @@ async function api(action, params) {
     return {ok: false, error: err.message};
   }
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
 // ❸  TOKEN / SESSION  (replaces localStorage session — uses sessionStorage)
 // ─────────────────────────────────────────────────────────────────────────────
