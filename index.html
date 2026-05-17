@@ -1469,6 +1469,81 @@ textarea{resize:vertical;min-height:70px}
   </div>
 </div>
 
+<!-- USER MANAGEMENT MODAL -->
+<div class="modal-overlay" id="userMgmtModal">
+  <div class="modal" style="max-width:780px;padding:0;overflow:hidden">
+    <div style="padding:20px 24px 16px;border-bottom:1px solid #f0f0f0;
+                display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:17px;font-weight:800">👥 User Management</div>
+        <div style="font-size:12px;color:#aaa;margin-top:2px">
+          Manage users, roles and business assignments
+        </div>
+      </div>
+      <button class="modal-close" 
+              onclick="closeModal('userMgmtModal')">&#10005;</button>
+    </div>
+
+    <!-- Tabs -->
+    <div style="display:flex;border-bottom:1px solid #f0f0f0;background:#fafafa">
+      <button id="umt-users" class="branch-detail-tab active" 
+              onclick="switchUserMgmtTab('users')">
+        👤 Users & Roles
+      </button>
+      <button id="umt-assign" class="branch-detail-tab" 
+              onclick="switchUserMgmtTab('assign')">
+        🏢 Business Assignment
+      </button>
+    </div>
+
+    <!-- Tab content -->
+    <div id="umt-content" 
+         style="max-height:500px;overflow-y:auto;padding:0">
+    </div>
+
+    <div class="modal-actions" 
+         style="padding:12px 24px;border-top:1px solid #f0f0f0;margin-top:0">
+      <button class="btn btn-primary" 
+              onclick="closeModal('userMgmtModal')">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ASSIGN BUSINESS MODAL -->
+<div class="modal-overlay" id="assignBizModal">
+  <div class="modal">
+    <div class="modal-title">
+      🏢 Assign business to user 
+      <button class="modal-close" 
+              onclick="closeModal('assignBizModal')">&#10005;</button>
+    </div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Business</label>
+        <select id="assign-biz-id">
+          <option value="">— select business —</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Assign to user</label>
+        <select id="assign-biz-user">
+          <option value="">— select user —</option>
+        </select>
+      </div>
+      <div id="assign-biz-info" 
+           style="font-size:12px;color:#888;
+                  background:#f8f8f8;border-radius:8px;
+                  padding:10px 12px;display:none">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" 
+              onclick="closeModal('assignBizModal')">Cancel</button>
+      <button class="btn btn-primary" 
+              onclick="doAssignBusiness()">Assign business</button>
+    </div>
+  </div>
+</div>
 <!-- TOAST CONTAINER -->
 <div id="toast-container"></div>
 
@@ -1592,7 +1667,15 @@ textarea{resize:vertical;min-height:70px}
       <div class="nav-section">Reports</div>
       <div class="nav-item" onclick="showPage('reports',this);closeMobileSidebar()"><span class="nav-icon">&#128202;</span> Reports & Export</div>
       <div class="nav-section">Intelligence</div>
-      <div class="nav-item" onclick="showPage('ai',this);closeMobileSidebar()"><span class="nav-icon">&#10024;</span> AI Insights</div>
+<div class="nav-item" onclick="showPage('ai',this);
+     closeMobileSidebar()">
+  <span class="nav-icon">&#10024;</span> AI Insights
+</div>
+<!-- Admin only nav item — shown/hidden by role -->
+<div class="nav-item" id="nav-usermgmt" style="display:none"
+     onclick="openUserMgmt();closeMobileSidebar()">
+  <span class="nav-icon">👥</span> User Management
+</div>
     </nav>
     <div class="sidebar-bottom">
       <div class="client-badge" id="sidebar-client-badge">Loading...</div>
@@ -2470,6 +2553,406 @@ function defaultBranches(){
   ];
 }
 
+  // ── USER MANAGEMENT ───────────────────────────────────
+var _umtTab = 'users';
+var _umtUsers = [];
+
+async function openUserMgmt() {
+  var session = getSession();
+  var isAdmin = session && 
+    (session.role === 'admin' || session.role === 'accountant');
+  if (!isAdmin) {
+    showToast('Access denied.', 'error');
+    return;
+  }
+
+  // Load users from server
+  showBizLoader('Loading users...');
+  var result = await api('getUsers', {});
+  hideBizLoader();
+
+  if (!result.ok) {
+    showToast(result.error || 'Failed to load users.', 'error');
+    return;
+  }
+
+  _umtUsers = result.users || [];
+  _umtTab = 'users';
+
+  // Reset tabs
+  ['users','assign'].forEach(function(t) {
+    var el = document.getElementById('umt-' + t);
+    if (el) el.classList.toggle('active', t === 'users');
+  });
+
+  renderUserMgmtTab('users');
+  openModal('userMgmtModal');
+}
+
+function switchUserMgmtTab(tab) {
+  _umtTab = tab;
+  ['users','assign'].forEach(function(t) {
+    var el = document.getElementById('umt-' + t);
+    if (el) el.classList.toggle('active', t === tab);
+  });
+  renderUserMgmtTab(tab);
+}
+
+function renderUserMgmtTab(tab) {
+  var content = document.getElementById('umt-content');
+  if (!content) return;
+  var session = getSession();
+  var isAdmin = session && session.role === 'admin';
+
+  if (tab === 'users') {
+    // ── USERS & ROLES TAB ──────────────────────────
+    if (!_umtUsers.length) {
+      content.innerHTML = 
+        '<div style="text-align:center;padding:40px;' +
+        'color:#aaa;font-size:13px">No users found.</div>';
+      return;
+    }
+
+    var roleColors = {
+      admin:      '#c0392b',
+      accountant: '#1a7a52',
+      owner:      '#185fa5',
+      manager:    '#7f77dd'
+    };
+    var roleBg = {
+      admin:      '#fcebeb',
+      accountant: '#e1f5ee',
+      owner:      '#f0f8ff',
+      manager:    '#f5f4ff'
+    };
+
+    var html = '<table style="width:100%;border-collapse:collapse;' +
+               'font-size:13px">';
+    html += '<thead><tr style="background:#fafafa">' +
+      '<th style="padding:10px 14px;text-align:left;font-size:11px;' +
+      'text-transform:uppercase;letter-spacing:0.5px;color:#aaa">User</th>' +
+      '<th style="padding:10px 14px;text-align:left;font-size:11px;' +
+      'text-transform:uppercase;letter-spacing:0.5px;color:#aaa">Email</th>' +
+      '<th style="padding:10px 14px;text-align:left;font-size:11px;' +
+      'text-transform:uppercase;letter-spacing:0.5px;color:#aaa">Role</th>' +
+      '<th style="padding:10px 14px;text-align:left;font-size:11px;' +
+      'text-transform:uppercase;letter-spacing:0.5px;color:#aaa">Joined</th>' +
+      '<th style="padding:10px 14px"></th>' +
+    '</tr></thead><tbody>';
+
+    _umtUsers.forEach(function(u) {
+      var rc = roleColors[u.role] || '#555';
+      var rb = roleBg[u.role]    || '#f5f5f5';
+      var isSelf = u.email === session.email;
+      var joined = u.created ? 
+        new Date(u.created).toLocaleDateString('en-GB') : '—';
+
+      html += '<tr style="border-bottom:1px solid #f5f5f5">' +
+        '<td style="padding:10px 14px">' +
+          '<div style="font-weight:700">' +
+            u.firstName + ' ' + u.lastName +
+            (isSelf ? 
+              '<span style="font-size:10px;background:#e1f5ee;' +
+              'color:#0f6e56;padding:1px 5px;border-radius:3px;' +
+              'margin-left:6px">You</span>' : '') +
+          '</div>' +
+        '</td>' +
+        '<td style="padding:10px 14px;color:#888;font-size:12px">' +
+          u.email + 
+        '</td>' +
+        '<td style="padding:10px 14px">' +
+          '<span style="background:' + rb + ';color:' + rc + ';' +
+          'padding:2px 9px;border-radius:100px;font-size:11px;' +
+          'font-weight:700">' + u.role + '</span>' +
+        '</td>' +
+        '<td style="padding:10px 14px;color:#aaa;font-size:12px">' +
+          joined + 
+        '</td>' +
+        '<td style="padding:10px 14px;white-space:nowrap">' +
+          // Only admin can change roles, and not their own
+          (isAdmin && !isSelf ?
+            '<select onchange="changeUserRole(\'' + u.email + '\',this.value)" ' +
+            'style="font-size:12px;padding:4px 8px;border-radius:6px;' +
+            'border:1px solid #ddd">' +
+              '<option value="">Change role...</option>' +
+              ['admin','accountant','owner','manager'].map(function(r) {
+                return '<option value="' + r + '" ' + 
+                  (u.role === r ? 'selected' : '') + '>' + r + '</option>';
+              }).join('') +
+            '</select>' : 
+            '<span style="font-size:11px;color:#ccc">—</span>') +
+        '</td>' +
+      '</tr>';
+    });
+
+    html += '</tbody></table>';
+    content.innerHTML = html;
+
+  } else if (tab === 'assign') {
+    // ── BUSINESS ASSIGNMENT TAB ────────────────────
+    var html = '<div style="padding:16px 20px">';
+
+    // Summary cards
+    html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);' +
+            'gap:10px;margin-bottom:16px">';
+    html += '<div class="card"><div class="card-label">Total businesses</div>' +
+            '<div class="card-value blue">' + businesses.length + '</div></div>';
+    html += '<div class="card"><div class="card-label">Total users</div>' +
+            '<div class="card-value green">' + _umtUsers.length + '</div></div>';
+
+    // Count unassigned businesses
+    var unassigned = businesses.filter(function(b) {
+      var owner = b.ownerEmail || '';
+      return !owner || !_umtUsers.find(function(u){ 
+        return u.email === owner; 
+      });
+    }).length;
+    html += '<div class="card"><div class="card-label">Unassigned</div>' +
+            '<div class="card-value ' + (unassigned > 0 ? 'amber' : 'green') + 
+            '">' + unassigned + '</div></div>';
+    html += '</div>';
+
+    // Add assign button
+    html += '<div style="display:flex;justify-content:flex-end;' +
+            'margin-bottom:12px">' +
+      '<button class="btn btn-primary" onclick="openAssignBizModal()">' +
+        '+ Assign business' +
+      '</button></div>';
+
+    // Businesses table
+    html += '<table style="width:100%;border-collapse:collapse;' +
+            'font-size:13px">';
+    html += '<thead><tr style="background:#fafafa">' +
+      '<th style="padding:10px 14px;text-align:left;font-size:11px;' +
+      'text-transform:uppercase;letter-spacing:0.5px;color:#aaa">' +
+        'Business</th>' +
+      '<th style="padding:10px 14px;text-align:left;font-size:11px;' +
+      'text-transform:uppercase;letter-spacing:0.5px;color:#aaa">' +
+        'Assigned to</th>' +
+      '<th style="padding:10px 14px;text-align:left;font-size:11px;' +
+      'text-transform:uppercase;letter-spacing:0.5px;color:#aaa">' +
+        'Industry</th>' +
+      '<th style="padding:10px 14px"></th>' +
+    '</tr></thead><tbody>';
+
+    businesses.forEach(function(biz) {
+      var ownerEmail = biz.ownerEmail || '—';
+      var ownerUser  = _umtUsers.find(function(u){ 
+        return u.email === ownerEmail; 
+      });
+      var ownerName  = ownerUser ? 
+        ownerUser.firstName + ' ' + ownerUser.lastName : 
+        ownerEmail;
+      var isUnassigned = !ownerUser;
+
+      html += '<tr style="border-bottom:1px solid #f5f5f5">' +
+        '<td style="padding:10px 14px">' +
+          '<div style="font-weight:700">' + biz.name + '</div>' +
+          (biz.client ? 
+            '<div style="font-size:11px;color:#aaa">' + 
+            biz.client + '</div>' : '') +
+        '</td>' +
+        '<td style="padding:10px 14px">' +
+          '<span style="background:' + 
+            (isUnassigned ? '#faeeda' : '#e1f5ee') + ';color:' +
+            (isUnassigned ? '#854f0b' : '#0f6e56') + ';padding:2px 9px;' +
+            'border-radius:100px;font-size:11px;font-weight:700">' +
+            (isUnassigned ? '⚠️ Unassigned' : ownerName) +
+          '</span>' +
+        '</td>' +
+        '<td style="padding:10px 14px;color:#888;font-size:12px">' +
+          (biz.industry || '—') + 
+        '</td>' +
+        '<td style="padding:10px 14px;white-space:nowrap;' +
+            'display:flex;gap:6px">' +
+          '<button class="btn btn-sm" ' +
+            'onclick="openAssignBizModal(\'' + biz.id + '\')" ' +
+            'title="Reassign">' +
+            '↔ Reassign' +
+          '</button>' +
+          '<button class="btn btn-sm btn-danger" ' +
+            'onclick="doUnassignBusiness(\'' + biz.id + '\')" ' +
+            'title="Unassign">' +
+            '✕ Unassign' +
+          '</button>' +
+        '</td>' +
+      '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+    content.innerHTML = html;
+  }
+}
+
+async function changeUserRole(email, newRole) {
+  if (!newRole) return;
+  var session = getSession();
+  if (session.role !== 'admin') {
+    showToast('Only admins can change roles.', 'error');
+    return;
+  }
+
+  var ok = await showConfirm(
+    'Change role for ' + email + ' to "' + newRole + '"?',
+    'Change role?',
+    '👤'
+  );
+  if (!ok) return;
+
+  var result = await api('updateUserRole', {
+    targetEmail: email,
+    newRole: newRole
+  });
+
+  if (!result.ok) {
+    showToast(result.error || 'Failed to update role.', 'error');
+    return;
+  }
+
+  // Update local list
+  var user = _umtUsers.find(function(u){ return u.email === email; });
+  if (user) user.role = newRole;
+
+  showToast('Role updated for ' + email + '.', 'success');
+  logActivity('Role changed: ' + email + ' → ' + newRole);
+  renderUserMgmtTab('users');
+}
+
+function openAssignBizModal(bizId) {
+  // Populate business dropdown
+  var bizSel = document.getElementById('assign-biz-id');
+  bizSel.innerHTML = '<option value="">— select business —</option>' +
+    businesses.map(function(b) {
+      return '<option value="' + b.id + '" ' +
+        (bizId && String(b.id) === String(bizId) ? 'selected' : '') +
+        '>' + b.name + '</option>';
+    }).join('');
+
+  // Populate user dropdown
+  var userSel = document.getElementById('assign-biz-user');
+  userSel.innerHTML = '<option value="">— select user —</option>' +
+    _umtUsers.map(function(u) {
+      return '<option value="' + u.email + '">' +
+        u.firstName + ' ' + u.lastName + 
+        ' (' + u.email + ')</option>';
+    }).join('');
+
+  // Show current assignment info if bizId provided
+  var infoEl = document.getElementById('assign-biz-info');
+  if (bizId) {
+    var biz = businesses.find(function(b){ 
+      return String(b.id) === String(bizId); 
+    });
+    if (biz && biz.ownerEmail) {
+      var owner = _umtUsers.find(function(u){ 
+        return u.email === biz.ownerEmail; 
+      });
+      infoEl.style.display = 'block';
+      infoEl.innerHTML = 'Currently assigned to: <strong>' +
+        (owner ? owner.firstName + ' ' + owner.lastName : biz.ownerEmail) +
+        '</strong>';
+    } else {
+      infoEl.style.display = 'none';
+    }
+  } else {
+    infoEl.style.display = 'none';
+  }
+
+  // Watch for selection changes to show info
+  bizSel.onchange = function() {
+    var selected = businesses.find(function(b){ 
+      return String(b.id) === this.value; 
+    }, this);
+    if (selected && selected.ownerEmail) {
+      var owner = _umtUsers.find(function(u){ 
+        return u.email === selected.ownerEmail; 
+      });
+      infoEl.style.display = 'block';
+      infoEl.innerHTML = 'Currently assigned to: <strong>' +
+        (owner ? 
+          owner.firstName + ' ' + owner.lastName : 
+          selected.ownerEmail) +
+        '</strong>';
+    } else {
+      infoEl.style.display = 'none';
+    }
+  };
+
+  openModal('assignBizModal');
+}
+
+async function doAssignBusiness() {
+  var bizId = document.getElementById('assign-biz-id').value;
+  var email = document.getElementById('assign-biz-user').value;
+
+  if (!bizId || !email) {
+    showToast('Please select both a business and a user.', 'warning');
+    return;
+  }
+
+  var biz  = businesses.find(function(b){ 
+    return String(b.id) === String(bizId); 
+  });
+  var user = _umtUsers.find(function(u){ return u.email === email; });
+
+  var ok = await showConfirm(
+    'Assign "' + (biz ? biz.name : bizId) + '" to ' +
+    (user ? user.firstName + ' ' + user.lastName : email) + '?',
+    'Assign business?',
+    '🏢'
+  );
+  if (!ok) return;
+
+  var result = await api('assignBusiness', {
+    bizId:       bizId,
+    targetEmail: email
+  });
+
+  if (!result.ok) {
+    showToast(result.error || 'Failed to assign business.', 'error');
+    return;
+  }
+
+  // Update local business ownerEmail
+  if (biz) biz.ownerEmail = email;
+
+  showToast(
+    '"' + (biz ? biz.name : bizId) + '" assigned to ' + email + '.', 
+    'success'
+  );
+  logActivity('Business assigned: ' + (biz ? biz.name : bizId) + 
+              ' → ' + email);
+  closeModal('assignBizModal');
+  renderUserMgmtTab('assign');
+}
+
+async function doUnassignBusiness(bizId) {
+  var biz = businesses.find(function(b){ 
+    return String(b.id) === String(bizId); 
+  });
+  var ok = await showConfirm(
+    'Unassign "' + (biz ? biz.name : bizId) + '"? ' +
+    'It will revert to admin ownership.',
+    'Unassign business?',
+    '🏢'
+  );
+  if (!ok) return;
+
+  var result = await api('unassignBusiness', {bizId: bizId});
+  if (!result.ok) {
+    showToast(result.error || 'Failed to unassign.', 'error');
+    return;
+  }
+
+  // Update local
+  var session = getSession();
+  if (biz) biz.ownerEmail = session.email;
+
+  showToast('Business unassigned.', 'info');
+  logActivity('Business unassigned: ' + (biz ? biz.name : bizId));
+  renderUserMgmtTab('assign');
+}
+
 // ── DOUBLE-ENTRY JOURNAL ──────────────────────────────
 
 function getJournal(){return currentBiz().journal||(currentBiz().journal=[]);}
@@ -2907,19 +3390,28 @@ function showOnboarding(){
   setTimeout(()=>{ var el=document.getElementById('ob-name');if(el)el.focus(); },100);
 }
 function completeOnboarding(){
+  var session = getSession();
   var name=(document.getElementById('ob-name').value||'').trim();
   var errEl=document.getElementById('ob-error');
-  if(!name){ errEl.textContent='Please enter your business name.';errEl.style.display='block';return; }
+  if(!name){ 
+    errEl.textContent='Please enter your business name.';
+    errEl.style.display='block';
+    return; 
+  }
   errEl.style.display='none';
   var biz={
     id:Date.now(),
+    ownerEmail: session ? session.email : '',  // ADD THIS
     name,
     client:(document.getElementById('ob-client').value||'').trim(),
     industry:document.getElementById('ob-industry').value,
     currency:document.getElementById('ob-currency').value,
     tagline:'',brand:obColor,
     address:'',phone:'',email:'',tax:'',
-    income:[],expenses:[],invoices:[],payroll:[],products:[],inventory:[],movements:[],accounts:defaultAccounts(),branches:defaultBranches(),taxSettings:defaultTaxSettings(),taxTransactions:[],journal:[]
+    income:[],expenses:[],invoices:[],payroll:[],products:[],
+    inventory:[],movements:[],accounts:defaultAccounts(),
+    branches:defaultBranches(),taxSettings:defaultTaxSettings(),
+    taxTransactions:[],journal:[]
   };
   businesses=[biz];
   currentBizId=biz.id;
@@ -3047,21 +3539,32 @@ var editBizColor='#1a7a52';
 function selectSwatchEdit(el){document.querySelectorAll('#eb-colors .swatch').forEach(s=>s.classList.remove('selected'));el.classList.add('selected');editBizColor=el.dataset.color;}
 
 function createBusiness(){
-  var name=document.getElementById('nb-name').value.trim();
-  if(!name)return showToast('Business name is required.','error');
+  var session = getSession();
+  var name = document.getElementById('nb-name').value.trim();
+  if(!name) return showToast('Business name is required.','error');
   var newBiz={
-    id:Date.now(),name,client:document.getElementById('nb-client').value.trim(),
-    industry:document.getElementById('nb-industry').value,currency:document.getElementById('nb-currency').value,
-    tagline:document.getElementById('nb-tagline').value.trim(),brand:newBizColor,
+    id:Date.now(),
+    ownerEmail: session ? session.email : '',  // ADD THIS
+    name,
+    client:document.getElementById('nb-client').value.trim(),
+    industry:document.getElementById('nb-industry').value,
+    currency:document.getElementById('nb-currency').value,
+    tagline:document.getElementById('nb-tagline').value.trim(),
+    brand:newBizColor,
     address:'',phone:'',email:'',tax:'',
-    income:[],expenses:[],invoices:[],payroll:[],products:[],inventory:[],movements:[],accounts:defaultAccounts(),branches:defaultBranches(),taxSettings:defaultTaxSettings(),taxTransactions:[],journal:[]
+    income:[],expenses:[],invoices:[],payroll:[],
+    products:[],inventory:[],movements:[],
+    accounts:defaultAccounts(),branches:defaultBranches(),
+    taxSettings:defaultTaxSettings(),taxTransactions:[],journal:[]
   };
-  businesses.push(newBiz);currentBizId=newBiz.id;
+  businesses.push(newBiz);
+  currentBizId=newBiz.id;
   saveData();
   populateSwitcher();applyBrand(newBizColor);updateSidebarBadge();
   closeModal('newBizModal');renderAll();
   showToast(`"${name}" created successfully.`,'success');
-  ['nb-name','nb-client','nb-tagline'].forEach(id=>document.getElementById(id).value='');
+  ['nb-name','nb-client','nb-tagline'].forEach(id=>
+    document.getElementById(id).value='');
 }
 function openEditBiz(){
   var b=currentBiz();
@@ -6081,18 +6584,133 @@ function showScreen(id){
     var el=document.getElementById(s);if(el)el.style.display=s===id?'flex':'none';
   });
 }
-function showApp(){
-  if(!businesses.length){ showOnboarding(); return; }
-  if(!currentBizId)currentBizId=businesses[0].id;
-  ['screen-login','screen-register','screen-2fa','screen-forgot','screen-onboarding'].forEach(s=>{
-    var el=document.getElementById(s);if(el)el.style.display='none';
+async function showApp() {
+  ['screen-login','screen-register','screen-2fa','screen-forgot',
+   'screen-onboarding'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.style.display = 'none';
   });
-  document.getElementById('app-layout').style.display='grid';
-  startSessionTimer();updateUserUI();
-  populateSwitcher();applyBrand(currentBiz().brand);updateSidebarBadge();
+  async function showApp() {
+
+  ['screen-login','screen-register','screen-2fa',
+   'screen-forgot','screen-onboarding'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+
+  // Get current session
+  var session = getSession();
+
+  // Check admin/accountant role
+  var isAdmin = session &&
+    (session.role === 'admin' || session.role === 'accountant');
+
+  // Show User Management nav only for admins/accountants
+  var navUserMgmt = document.getElementById('nav-usermgmt');
+
+  if (navUserMgmt) {
+    navUserMgmt.style.display = isAdmin ? 'flex' : 'none';
+  }
+
+}
+
+  var session = getSession();
+  if (!session) { showScreen('screen-login'); return; }
+
+  var appEl = document.getElementById('app-layout');
+  if (appEl) appEl.style.display = 'grid';
+
+  // Ensure data is loaded
+  if (!businesses.length) {
+    var ok = await loadData();
+    if (!ok) {
+      showOnboarding();
+      return;
+    }
+  }
+
+  if (!businesses.length) {
+    showOnboarding();
+    return;
+  }
+
+  // ── ROLE-BASED UI CONTROL ─────────────────────────
+  var isAdmin = session.role === 'admin' || session.role === 'accountant';
+
+  // Business action buttons
+  var bizActions = document.querySelector('.biz-actions');
+  if (bizActions) {
+    // Show all buttons to admin, hide new/delete for others
+    var btns = bizActions.querySelectorAll('.biz-btn');
+    btns.forEach(function(btn) {
+      var isNewBtn   = btn.textContent.includes('New');
+      var isDeleteBtn = btn.classList.contains('danger');
+      if (!isAdmin && (isNewBtn || isDeleteBtn)) {
+        btn.style.display = 'none';
+      } else {
+        btn.style.display = '';
+      }
+    });
+  }
+
+  // Hide new business modal trigger from nav for non-admins
+  var newBizModal = document.getElementById('newBizModal');
+  if (newBizModal && !isAdmin) {
+    // Remove open class if somehow opened
+    newBizModal.classList.remove('open');
+  }
+
+  // Hide/show nav items based on role
+  // Non-admins still see everything within their business
+  // but cannot manage other businesses
+
+  startSessionTimer();
+  updateUserUI();
+  populateSwitcher();
+  applyBrand(currentBiz().brand);
+  updateSidebarBadge();
   renderAll();
-  // Delay alerts slightly so app renders first
   setTimeout(checkTaxAlerts, 800);
+}
+  // ── ROLE GUARD — prevent non-admins from 
+  //    opening businesses that aren't theirs ──
+  function canAccessBusiness(biz) {
+    var session = getSession();
+    if (!session) return false;
+    var isAdmin = session.role === 'admin' || 
+                  session.role === 'accountant';
+    if (isAdmin) return true;
+    return String(biz.ownerEmail) === String(session.email);
+  }
+
+// Override switchBusiness to add role check
+var _originalSwitchBusiness = switchBusiness;
+function switchBusiness(id) {
+  var biz = businesses.find(function(b){ 
+    return b.id === parseInt(id); 
+  });
+  if (!biz) return;
+  if (!canAccessBusiness(biz)) {
+    showToast('You do not have permission to access this business.','error');
+    return;
+  }
+  _originalSwitchBusiness(id);
+}
+
+// ── ROLE-BASED SIDEBAR BADGE ──────────────────────
+function updateSidebarBadge(){
+  var b = currentBiz();
+  var session = getSession();
+  var isAdmin = session && (session.role === 'admin' || 
+                session.role === 'accountant');
+  var badge = document.getElementById('sidebar-client-badge');
+  if (badge) {
+    badge.textContent = b.client || b.name;
+    // Show role indicator
+    badge.title = 'Role: ' + (session ? session.role : '');
+    badge.style.background = isAdmin ? '#1a7a52' : '#185fa5';
+    badge.style.color = '#fff';
+  }
 }
 
 // ── LOGIN ─────────────────────────────────────────────
