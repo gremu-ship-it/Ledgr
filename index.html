@@ -7781,23 +7781,6 @@ document.addEventListener('keydown',function(e){
   if(e.key==='Escape')closeMobileSidebar();
 });
 
-/**
- * LEDGR — Google Apps Script API Adapter
- * ═══════════════════════════════════════
- * Drop this <script> block into ledgr-v3_6.html BEFORE the closing </script>
- * of the main script block, then apply the diff in DEPLOY.md.
- *
- * This adapter:
- *   1. Defines GAS_URL (set this to your deployed Web App URL).
- *   2. Provides api(action, params) — the single fetch wrapper.
- *   3. Replaces saveData / loadData with async GAS-backed versions.
- *   4. Replaces getUsers / saveUsers with server-round-trips.
- *   5. Replaces session management with token-based auth stored in sessionStorage.
- *   6. Provides logActivityRemote() so the activity log is server-side.
- *
- * NOTHING else in the app needs to change — all other functions remain intact.
- */
-
 // ─────────────────────────────────────────────────────────────────────────────
 // ❶  CONFIGURE THIS  ← paste your Apps Script Web App URL here
 // ─────────────────────────────────────────────────────────────────────────────
@@ -8190,17 +8173,7 @@ function saveUsers(u) { /* no-op — server manages users */ }
 // ⓫  STARTUP  (replaces the original IIFE init block)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Replace the original (function init(){...})() at the bottom of the script
- * with this async version.
- *
- * Paste this at the very end of the <script> block, replacing the original:
- *   (function init(){
- *     loadData();
- *     ...
- *   })();
- */
-(async function initAsync() {
+  (async function initAsync() {
   // Show a loading indicator while we fetch from GAS
   var loader = document.getElementById('biz-loader');
   var loaderText = document.getElementById('biz-loader-text');
