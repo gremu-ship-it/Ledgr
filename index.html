@@ -7067,6 +7067,25 @@ function showSecurityInfo(){
     '<div class="info-row"><span class="info-label">Signed in as</span><span class="info-value">'+(s?s.email:'—')+'</span></div>'+
     '<div class="info-row"><span class="info-label">Name</span><span class="info-value">'+(s?(s.firstName+' '+s.lastName):'—')+'</span></div>'+
     '<div class="info-row"><span class="info-label">Role</span><span class="info-value" style="text-transform:capitalize">'+(s?s.role||'User':'—')+'</span></div>'+
+'<div class="info-row">' +
+  '<span class="info-label">Access level</span>' +
+
+  '<span class="info-value" style="color:' +
+    (
+      (s && (s.role === 'admin' || s.role === 'accountant'))
+        ? '#1a7a52'
+        : '#185fa5'
+    ) +
+  '">' +
+
+    (
+      (s && (s.role === 'admin' || s.role === 'accountant'))
+        ? '🔑 Full access (' + s.role + ')'
+        : '🔒 Limited access (' + s.role + ')'
+    ) +
+
+  '</span>' +
+'</div>' +
     '<div class="info-row"><span class="info-label">Login time</span><span class="info-value">'+(loginTime?loginTime.toLocaleString():'—')+'</span></div>'+
     '<div class="info-row"><span class="info-label">Session duration</span><span class="info-value">'+sessionAge+' min</span></div>'+
     '<div class="info-row"><span class="info-label">Two-factor auth</span><span class="info-value" style="color:#1a7a52">✅ Enabled</span></div>'+
