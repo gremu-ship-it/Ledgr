@@ -8607,6 +8607,30 @@ async function doLogin() {
   }
 
   loginAttempts = 0; lockedUntil = null;
+
+  // Skip 2FA — create session immediately
+  var sessionResult = await api('createSessionForVerifiedUser', {email: email});
+  if (!sessionResult.ok) {
+    showAuthError('login-error', sessionResult.error || 'Session creation failed.');
+    return;
+  }
+
+  var remember = document.getElementById('remember-me') && document.getElementById('remember-me').checked;
+  setToken(sessionResult.token, remember);
+
+  var session = {
+    email:     result.user.email,
+    firstName: result.user.firstName,
+    lastName:  result.user.lastName,
+    role:      result.user.role,
+    loginTime: new Date().toISOString()
+  };
+  saveSession(session, remember);
+  logActivity('Successful login');
+  showApp();
+}
+
+  loginAttempts = 0; lockedUntil = null;
   pendingUser = result.user;
 
   // Generate OTP and trigger 2FA (unchanged from original)
