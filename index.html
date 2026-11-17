@@ -223,21 +223,57 @@ textarea{resize:vertical;min-height:70px}
 .report-preview-title{font-size:14px;font-weight:700}
 .report-actions-bar{display:flex;gap:8px;flex-wrap:wrap}
 
-/* PRINT STYLES */
-@media print{
-  .sidebar,.hamburger,.sidebar-overlay,.page-header .btn,
-  .report-filters,.report-actions-bar,.report-card,
-  #toast-container,.biz-loader,.user-menu,.biz-actions,
-  .nav,.sidebar-top,.sidebar-bottom{display:none!important}
-  .layout{grid-template-columns:1fr!important}
-  .main{padding:0!important}
-  .page{display:block!important}
-  .print-only{display:block!important}
-  body{font-size:12px}
-  table{font-size:11px}
-  .card-value{font-size:16px}
-}
+/* ── PRINT STYLES (global hardening) ─────────────────────
+   Keeps direct browser printing (Cmd+P / Ctrl+P) from producing
+   blank, cut-off or clipped pages. The report/invoice/payslip
+   documents themselves are rendered by the print engine in a
+   dedicated iframe, so these rules only need to tame app chrome. */
 .print-only{display:none}
+
+@media print{
+  /* Hide UI chrome. `header`/`aside`/`nav` are included for safety —
+     the app has no such elements today, so this cannot hide documents. */
+  nav,aside,header,button,.no-print,.sidebar,.hamburger,.sidebar-overlay,
+  [role="navigation"],.page-header .btn,.report-filters,.report-actions-bar,
+  .report-card,#toast-container,.biz-loader,.user-menu,.biz-actions,
+  .nav,.sidebar-top,.sidebar-bottom,.modal-actions,.filter-bar,
+  .add-panel,.modal-close,input,select,textarea{display:none!important}
+
+  /* Reset heights so long tables are not clipped to one viewport / blank page */
+  html,body,#app-layout,.layout,#root,main,.main{
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    overflow:visible!important;
+    background:#fff!important;
+    color:#000!important;
+  }
+  .layout{display:block!important;grid-template-columns:1fr!important}
+  .main{padding:0!important}
+
+  /* Only the visible page prints; modals keep their own document */
+  .page{display:none!important}
+  .page.active{display:block!important}
+  .print-only{display:block!important}
+
+  /* Page-break behaviour for financial tables */
+  body{font-size:12px}
+  table{font-size:11px;border-collapse:collapse;page-break-inside:auto}
+  tr{page-break-inside:avoid;page-break-after:auto}
+  thead{display:table-header-group}
+  tfoot{display:table-footer-group}
+  td,th{page-break-inside:avoid}
+  h1,h2,h3,h4{page-break-after:avoid}
+
+  /* Printing anywhere inside a modal (e.g. an open invoice) prints the page */
+  .modal-overlay{position:static!important;display:none!important}
+
+  .card{border:1px solid #ccc!important;box-shadow:none!important}
+  .card-value{font-size:16px}
+  .table-card{box-shadow:none!important;border:1px solid #ccc!important}
+
+  @page{margin:12mm}
+}
 
 /* INVOICE BUILDER */
 .inv-line-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;align-items:center;margin-bottom:8px}
@@ -678,7 +714,15 @@ textarea{resize:vertical;min-height:70px}
       <div class="form-group"><label>Address</label><textarea id="eb-address" style="min-height:50px"></textarea></div>
       <div class="form-group"><label>Phone</label><input id="eb-phone"></div>
       <div class="form-group"><label>Email</label><input id="eb-email" type="email"></div>
-      <div class="form-group"><label>Tax / VAT number</label><input id="eb-tax"></div>
+      <div class="form-row" style="grid-template-columns:1fr 1fr">
+        <div class="form-group"><label>TPIN (tax payer ID)</label><input id="eb-tpin" placeholder="e.g. 12345678"></div>
+        <div class="form-group"><label>VAT number</label><input id="eb-vat" placeholder="e.g. VAT-0042"></div>
+      </div>
+      <div class="form-row" style="grid-template-columns:1fr 1fr">
+        <div class="form-group"><label>Company registration no.</label><input id="eb-reg" placeholder="e.g. TRL-2019-00421"></div>
+        <div class="form-group"><label>Trading name</label><input id="eb-trading" placeholder="Name used on documents"></div>
+      </div>
+      <div class="form-group"><label>Tax / VAT number (legacy)</label><input id="eb-tax"></div>
       <div class="form-group"><label>Brand colour</label>
         <div class="color-swatches" id="eb-colors">
           <div class="swatch selected" style="background:#1a7a52" data-color="#1a7a52" onclick="selectSwatchEdit(this)"></div>
@@ -858,31 +902,11 @@ textarea{resize:vertical;min-height:70px}
 </div>
 
 <style>
-/* ── INVOICE PRINT ── */
-#invoice-print-frame{display:none}
-@media print{
-  body>*{display:none!important}
-  #invoice-print-frame{display:block!important;position:fixed;inset:0;background:#fff;z-index:99999;padding:40px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;color:#1a1a1a}
-  .inv-print-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px}
-  .inv-print-biz-name{font-size:22px;font-weight:800;letter-spacing:-0.5px}
-  .inv-print-meta{text-align:right;font-size:12px;color:#555;line-height:1.7}
-  .inv-print-id{font-size:28px;font-weight:800;color:#1a1a1a;margin-bottom:4px}
-  .inv-print-parties{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:28px;padding:20px;background:#f8f8f8;border-radius:8px}
-  .inv-print-party-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#aaa;margin-bottom:6px}
-  .inv-print-party-name{font-size:15px;font-weight:700}
-  .inv-print-table{width:100%;border-collapse:collapse;margin-bottom:20px}
-  .inv-print-table th{text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;padding:8px 10px;border-bottom:2px solid #eee}
-  .inv-print-table td{padding:10px;border-bottom:1px solid #f0f0f0;font-size:13px}
-  .inv-print-totals{margin-left:auto;width:260px}
-  .inv-print-total-row{display:flex;justify-content:space-between;padding:5px 0;font-size:13px;color:#555}
-  .inv-print-total-row.grand{font-size:16px;font-weight:800;color:#1a1a1a;border-top:2px solid #1a1a1a;margin-top:6px;padding-top:10px}
-  .inv-print-notes{margin-top:20px;font-size:12px;color:#888;border-top:1px solid #eee;padding-top:14px}
-  .inv-print-footer{margin-top:40px;font-size:11px;color:#bbb;text-align:center}
-  .inv-print-status{display:inline-block;padding:3px 12px;border-radius:100px;font-size:11px;font-weight:700;margin-left:12px}
-  .inv-print-status.paid{background:#e1f5ee;color:#0f6e56}
-  .inv-print-status.pending{background:#faeeda;color:#854f0b}
-  .inv-print-status.overdue{background:#fcebeb;color:#a32d2d}
-}
+/* ── INVOICE PRINT ──
+   Invoices now print through printDocument() (see PRINT ENGINE below),
+   which builds a standalone document in an iframe. The old in-DOM
+   #invoice-print-frame + `@media print{body>*{display:none}}` approach
+   caused blank PDFs / clipped pages and has been removed. */
 /* Invoice preview inside modal (non-print) */
 .inv-preview-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px}
 .inv-preview-biz-name{font-size:20px;font-weight:800;letter-spacing:-0.5px}
@@ -900,7 +924,6 @@ textarea{resize:vertical;min-height:70px}
 .inv-preview-total-row.grand{font-size:15px;font-weight:800;color:#1a1a1a;border-top:2px solid #1a1a1a;margin-top:6px;padding-top:8px}
 .inv-preview-notes{margin-top:14px;font-size:12px;color:#888;padding-top:12px;border-top:1px solid #f0f0f0}
 </style>
-<div id="invoice-print-frame"></div>
 
 <!-- TAX SETTINGS LIST MODAL -->
 <div class="modal-overlay" id="taxSettingListModal">
@@ -1835,7 +1858,10 @@ textarea{resize:vertical;min-height:70px}
     <!-- PAYROLL -->
     <div id="page-payroll" class="page">
       <div class="page-header"><div><div class="page-title">Payroll</div><div class="page-sub">Employee salaries and costs</div></div>
-        <button class="btn btn-primary" onclick="openRunPayrollModal()">&#128200; Run payroll</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" onclick="printPayRunSummary()">&#128438; Print pay run</button>
+          <button class="btn btn-primary" onclick="openRunPayrollModal()">&#128200; Run payroll</button>
+        </div>
       </div>
       <div class="add-panel">
         <div class="add-panel-title">Add employee</div>
@@ -2292,8 +2318,8 @@ textarea{resize:vertical;min-height:70px}
             <div style="font-size:12px;color:#888;margin-top:2px" id="rpt-preview-sub"></div>
           </div>
           <div class="report-actions-bar">
-            <button class="btn btn-sm" onclick="printReport()">🖨 Print</button>
-            <button class="btn btn-sm btn-primary" id="rpt-csv-btn" onclick="exportCSV()">⬇ Download CSV</button>
+            <button class="btn btn-sm" onclick="printReport()" title="Opens the print dialog — choose 'Save as PDF' to export">&#128438; Print / PDF</button>
+            <button class="btn btn-sm btn-primary" id="rpt-csv-btn" onclick="exportCSV()">&#11015; Download CSV</button>
           </div>
         </div>
         <div id="rpt-preview-body" style="padding:18px;overflow-x:auto"></div>
@@ -3454,6 +3480,7 @@ function completeOnboarding(){
     currency:document.getElementById('ob-currency').value,
     tagline:'',brand:obColor,
     address:'',phone:'',email:'',tax:'',
+    tpin:'',vatNumber:'',registrationNumber:'',tradingName:'',
     income:[],expenses:[],invoices:[],payroll:[],products:[],
     inventory:[],movements:[],accounts:defaultAccounts(),
     branches:defaultBranches(),taxSettings:defaultTaxSettings(),
@@ -3707,6 +3734,10 @@ function openEditBiz(){
   document.getElementById('eb-phone').value=b.phone||'';
   document.getElementById('eb-email').value=b.email||'';
   document.getElementById('eb-tax').value=b.tax||'';
+  document.getElementById('eb-tpin').value=b.tpin||b.tax||'';
+  document.getElementById('eb-vat').value=b.vatNumber||'';
+  document.getElementById('eb-reg').value=b.registrationNumber||'';
+  document.getElementById('eb-trading').value=b.tradingName||'';
   editBizColor=b.brand;
   document.querySelectorAll('#eb-colors .swatch').forEach(s=>{s.classList.toggle('selected',s.dataset.color===b.brand);});
   openModal('editBizModal');
@@ -3722,6 +3753,10 @@ function saveEditBusiness(){
   b.phone=document.getElementById('eb-phone').value.trim();
   b.email=document.getElementById('eb-email').value.trim();
   b.tax=document.getElementById('eb-tax').value.trim();
+  b.tpin=document.getElementById('eb-tpin').value.trim();
+  b.vatNumber=document.getElementById('eb-vat').value.trim();
+  b.registrationNumber=document.getElementById('eb-reg').value.trim();
+  b.tradingName=document.getElementById('eb-trading').value.trim();
   b.brand=editBizColor;
   saveData();
   applyBrand(editBizColor);populateSwitcher();updateSidebarBadge();closeModal('editBizModal');renderAll();
@@ -4417,48 +4452,96 @@ function toggleInvEmailPanel(){
 }
 
 // ── PRINT INVOICE ─────────────────────────────────────
+// Routed through the standalone print engine — same output in every browser.
 function printInvoice(){
-  var inv=currentBiz().invoices.find(i=>i.id===_viewingInvoiceId);
-  if(!inv)return;
+  var inv=currentBiz().invoices.find(function(i){return i&&i.id===_viewingInvoiceId;});
+  if(!inv){ showToast('Invoice not found.','error'); return; }
+  try{
+    _printInvoiceDoc(inv,currentBiz());
+    logActivity('Invoice printed: '+inv.id);
+  }catch(err){
+    console.error('[Ledgr] printInvoice failed:',err);
+    showToast('Could not prepare this invoice for printing.','error');
+  }
+}
+
+// ── PRINT PAYSLIP ─────────────────────────────────────
+// A single-employee payslip. PAYE is estimated at the run rate (default 25%).
+function printPayslip(index,payeRate){
   var b=currentBiz();
-  var sub=0,tax=0;
-  (inv.lines||[]).forEach(l=>{var s=(l.qty||1)*(l.price||0);sub+=s;tax+=s*((l.tax||0)/100);});
-  var total=sub+tax;
-  var st=inv.status||'pending';
+  var emp=asArray(b.payroll)[index];
+  if(!emp){ showToast('Employee not found.','error'); return; }
+  var rate=(typeof payeRate==='number'&&isFinite(payeRate))?payeRate:25;
+  var gross=Number(emp.sal)||0;
+  var paye=Math.round(gross*rate/100*100)/100;
+  var net=Math.round((gross-paye)*100)/100;
 
-  document.getElementById('invoice-print-frame').innerHTML=`
-    <div class="inv-print-header">
-      <div>
-        <div class="inv-print-biz-name">${b.name}</div>
-        <div style="font-size:12px;color:#888;margin-top:4px">${b.industry||''}</div>
-      </div>
-      <div class="inv-print-meta">
-        <div class="inv-print-id">${inv.id}<span class="inv-print-status ${st}">${st.toUpperCase()}</span></div>
-        <div>Issued: ${inv.issued}</div>
-        <div>Due: ${inv.due}</div>
-        <div>Printed: ${today()}</div>
-      </div>
-    </div>
-    <div class="inv-print-parties">
-      <div><div class="inv-print-party-label">From</div><div class="inv-print-party-name">${b.name}</div></div>
-      <div><div class="inv-print-party-label">Bill to</div><div class="inv-print-party-name">${inv.client}</div></div>
-    </div>
-    <table class="inv-print-table">
-      <thead><tr><th>Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit price</th><th style="text-align:right">Tax</th><th style="text-align:right">Amount</th></tr></thead>
-      <tbody>${(inv.lines||[]).map(l=>{
-        var s=(l.qty||1)*(l.price||0);var t=s*((l.tax||0)/100);
-        return`<tr><td>${l.name||'—'}</td><td style="text-align:right">${l.qty||1}</td><td style="text-align:right">${fmt(l.price||0)}</td><td style="text-align:right">${l.tax||0}%</td><td style="text-align:right">${fmt(s+t)}</td></tr>`;
-      }).join('')}</tbody>
-    </table>
-    <div class="inv-print-totals">
-      <div class="inv-print-total-row"><span>Subtotal</span><span>${fmt(sub)}</span></div>
-      ${tax?`<div class="inv-print-total-row"><span>Tax</span><span>${fmt(tax)}</span></div>`:''}
-      <div class="inv-print-total-row grand"><span>Total Due</span><span>${fmt(total)}</span></div>
-    </div>
-    ${inv.notes?`<div class="inv-print-notes"><strong>Notes:</strong> ${inv.notes}</div>`:''}
-    <div class="inv-print-footer">Generated by Ledgr · ${b.name} · ${today()}</div>`;
+  var period=new Date().toLocaleDateString('en-GB',{month:'long',year:'numeric'});
 
-  window.print();
+  printDocument({
+    title:'Payslip',
+    subtitle:emp.name+(emp.role?' · '+emp.role:'')+(emp.dept?' · '+emp.dept:''),
+    dateRange:'Pay period: '+period,
+    currency:b.currency,
+    metaLines:['Confidential — employee copy','PAYE estimated at '+rate+'% for this illustration'],
+    table:{
+      headers:['Item','Basis','Amount'],
+      rows:[
+        {cells:['Gross salary','Monthly salary',gross]},
+        {cells:['PAYE (income tax)',rate+'% of gross',-paye]},
+        {__total:true,cells:['Net pay','Take-home',net]}
+      ],
+      numericFrom:2
+    },
+    summary:[
+      {label:'Gross',value:gross},
+      {label:'PAYE',value:-paye},
+      {label:'Net Pay',value:net,isGrand:true}
+    ],
+    signatures:true,
+    footerNote:'This payslip is computer generated. PAYE shown is an estimate based on the selected rate; final statutory deductions may differ.',
+    filename:'Payslip_'+(emp.name||'employee').replace(/\s+/g,'_')+'_'+period.replace(/\s+/g,'_')+'.pdf'
+  });
+  logActivity('Payslip printed: '+emp.name);
+}
+
+// ── PRINT PAY RUN SUMMARY ─────────────────────────────
+function printPayRunSummary(payeRate){
+  var b=currentBiz();
+  var payroll=asArray(b.payroll);
+  if(!payroll.length){ showToast('No employees on payroll.','error'); return; }
+  var rate=(typeof payeRate==='number'&&isFinite(payeRate))?payeRate:25;
+  var period=new Date().toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+
+  var gross=0,payeTotal=0;
+  var rows=payroll.map(function(emp){
+    var g=Number(emp.sal)||0;
+    var p=Math.round(g*rate/100*100)/100;
+    gross+=g;payeTotal+=p;
+    return {cells:[emp.name||'',emp.role||'',emp.dept||'',g,p,g-p]};
+  });
+  var netTotal=Math.round((gross-payeTotal)*100)/100;
+  rows.push({__total:true,cells:['TOTAL','','',gross,payeTotal,netTotal]});
+
+  printDocument({
+    title:'Pay Run Summary',
+    subtitle:b.name,
+    dateRange:'Pay period: '+period,
+    currency:b.currency,
+    metaLines:['PAYE rate applied: '+rate+'%','Employees on run: '+payroll.length],
+    table:{
+      headers:['Employee','Role','Department','Gross','PAYE','Net Pay'],
+      rows:rows,numericFrom:3
+    },
+    summary:[
+      {label:'Total Gross',value:gross},
+      {label:'Total PAYE',value:payeTotal},
+      {label:'Total Net Pay',value:netTotal,isGrand:true}
+    ],
+    signatures:true,
+    filename:(b.name||'Business').replace(/\s+/g,'_')+'_PayRun_'+period.replace(/\s+/g,'_')+'.pdf'
+  });
+  logActivity('Pay run summary printed: '+period);
 }
 
 // ── SEND INVOICE EMAIL ────────────────────────────────
@@ -4677,6 +4760,7 @@ function renderPayroll(){
     <td style="text-align:right;font-weight:700">${fmt(r.sal*12)}</td>
     <td style="white-space:nowrap">
       <button class="btn btn-sm btn-icon" onclick="editEmployee(${i})" title="Edit" style="margin-right:4px">&#9998;</button>
+      <button class="btn btn-sm btn-icon" onclick="printPayslip(${i})" title="Print payslip" style="margin-right:4px">&#128438;</button>
       <button class="btn btn-sm btn-danger" onclick="removeEmployee(${i})">Remove</button>
     </td></tr>`;
   }).join('')
@@ -8501,17 +8585,847 @@ function exportCSV(){
   logActivity('CSV exported: ' + filename);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// i18n  —  translation keys for printed documents & print UI
+// ───────────────────────────────────────────────────────────────────────────
+// Mirrors the src/i18n/locales/en.json structure: every label used in a printed
+// document resolves through t(). Interpolation uses {{name}} placeholders.
+// Add a locale by dropping in another dictionary and setting LEDGR_LOCALE.
+// ═══════════════════════════════════════════════════════════════════════════
+
+var PRINT_LOCALES={
+  en:{
+    'print.action.print':'Print / PDF',
+    'print.action.payslip':'Print payslip',
+    'print.action.payRun':'Print pay run',
+    'print.action.invoice':'Print / PDF',
+    'print.generated':'Generated',
+    'print.currency':'Currency: {{currency}}',
+    'print.page':'Page {{page}} of {{total}}',
+    'print.confidential':'Confidential',
+    'print.employeeCopy':'Confidential — employee copy',
+
+    'doc.regNo':'Reg. No',
+    'doc.tpin':'TPIN',
+    'doc.vatNo':'VAT No',
+    'doc.tel':'Tel',
+    'doc.billTo':'Bill to',
+    'doc.preparedBy':'Prepared by',
+    'doc.reviewedBy':'Reviewed by',
+    'doc.authorised':'Authorised signature',
+    'doc.noData':'No data for this period.',
+
+    'report.pl':'Profit & Loss Statement',
+    'report.bs':'Balance Sheet',
+    'report.tb':'Trial Balance',
+    'report.cf':'Statement of Cash Flows',
+    'report.vat':'VAT Return & Tax Summary',
+    'report.tax':'Tax Summary Report',
+    'report.branch':'Branch P&L Comparison',
+    'report.income':'Income Report',
+    'report.expenses':'Expense Report',
+    'report.ageing':'Invoice Ageing',
+    'report.payroll':'Payroll Summary',
+    'report.ledger':'Transaction Ledger',
+    'report.payslip':'Payslip',
+    'report.payRun':'Pay Run Summary',
+    'report.taxInvoice':'Tax Invoice',
+
+    'label.asAt':'As at: {{date}}',
+    'label.period':'Period: {{from}} to {{to}}',
+    'label.payPeriod':'Pay period: {{period}}',
+    'label.periodSingle':'Period: {{period}}',
+
+    'table.category':'Category',
+    'table.code':'Code',
+    'table.account':'Account',
+    'table.subtype':'Sub-type',
+    'table.description':'Description',
+    'table.date':'Date',
+    'table.amount':'Amount',
+    'table.totalDR':'Total DR',
+    'table.totalCR':'Total CR',
+    'table.netBalance':'Net Balance',
+    'table.item':'Item',
+    'table.basis':'Basis',
+    'table.qty':'Qty',
+    'table.unitPrice':'Unit Price',
+    'table.tax':'Tax',
+    'table.employee':'Employee',
+    'table.role':'Role',
+    'table.department':'Department',
+    'table.gross':'Gross',
+    'table.paye':'PAYE',
+    'table.netPay':'Net Pay',
+    'table.rate':'Rate',
+    'table.status':'Status',
+    'table.client':'Client',
+    'table.issued':'Issued',
+    'table.due':'Due',
+    'table.invoiceNo':'Invoice #',
+    'table.location':'Location',
+    'table.revenue':'Revenue',
+    'table.expenses':'Expenses',
+    'table.netProfit':'Net Profit',
+    'table.margin':'Margin',
+    'table.liability':'Liability',
+    'table.paid':'Paid',
+    'table.outstanding':'Outstanding',
+    'table.type':'Type',
+    'table.source':'Source',
+    'table.accountCode':'Account',
+
+    'common.income':'Income',
+    'common.expenses':'Expenses',
+    'common.totalIncome':'Total Income',
+    'common.totalExpenses':'Total Expenses',
+    'common.netProfit':'Net Profit',
+    'common.netMargin':'Net Margin',
+    'common.subtotal':'Subtotal',
+    'common.totalDue':'Total Due',
+    'common.totalAssets':'Total Assets',
+    'common.totalLiabilities':'Total Liabilities',
+    'common.totalEquity':'Total Equity',
+    'common.grandTotal':'GRAND TOTAL',
+    'common.total':'TOTAL',
+    'common.note':'Note',
+    'common.noIncome':'No income recorded in this period.',
+    'common.noExpenses':'No expenses recorded in this period.',
+    'common.noVat':'No VAT transactions recorded in this period.',
+
+    'msg.printFailed':'Could not open the print dialog. Try Ctrl/Cmd+P.',
+    'msg.printPrepFailed':'Could not prepare the print document.',
+    'msg.noReport':'No report loaded. Click a report card first.',
+    'msg.notPrintable':'This report cannot be printed yet.'
+  }
+};
+
+var LEDGR_LOCALE='en';
+
+/**
+ * t(key, vars) — translate a key with {{placeholder}} interpolation.
+ * Falls back to the key itself so a missing translation never breaks a document.
+ */
+function t(key,vars){
+  var dict=PRINT_LOCALES[LEDGR_LOCALE]||PRINT_LOCALES.en;
+  var str=(dict&&dict[key]!=null)?dict[key]:(PRINT_LOCALES.en[key]!=null?PRINT_LOCALES.en[key]:key);
+  if(vars){
+    Object.keys(vars).forEach(function(k){
+      str=str.split('{{'+k+'}}').join(String(vars[k]==null?'':vars[k]));
+    });
+  }
+  return str;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PRINT ENGINE  —  standalone, print-ready documents via a hidden iframe
+// ───────────────────────────────────────────────────────────────────────────
+// Everything the user prints (financial reports, invoices, payslips) is built
+// as a self-contained HTML document with inline styles, mounted into a hidden
+// iframe, and sent to the native print dialog. This avoids the classic blank
+// PDF / clipped-page problems of printing the app DOM directly, because the
+// printed document shares no layout, scroll container or theme with the app.
+//
+// No external libraries are used: window.print() only.
+// ═══════════════════════════════════════════════════════════════════════════
+
+var PRINT_FONT_STACK="-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,'Helvetica Neue',Arial,sans-serif";
+
+/**
+ * Build the business header block for a printed document.
+ * Every document carries legal name, trading name, registration/TPIN/VAT,
+ * address, phone, email, plus title, period and generation timestamp.
+ */
+function buildPrintBusinessHeader(biz,opts){
+  biz=biz||{};
+  opts=opts||{};
+  var legal=escapeHtml(biz.name||'—');
+  var trading=biz.tradingName?escapeHtml(biz.tradingName):'';
+  // Tax registration: prefer explicit TPIN / VAT fields, fall back to legacy `tax`.
+  var tpin=biz.tpin||biz.tax||'';
+  var vat=biz.vatNumber||biz.vat||'';
+  var regNo=biz.registrationNumber||biz.regNumber||'';
+
+  var contact=[];
+  if(biz.address)contact.push(escapeHtml(biz.address));
+  if(biz.city)contact.push(escapeHtml(biz.city));
+  if(biz.country)contact.push(escapeHtml(biz.country));
+  var addressLine=contact.join(', ');
+  var phone=biz.phone?escapeHtml(biz.phone):'';
+  var email=biz.email?escapeHtml(biz.email):'';
+
+  var idBits=[];
+  if(regNo)idBits.push(t('doc.regNo')+': '+escapeHtml(regNo));
+  if(tpin)idBits.push(t('doc.tpin')+': '+escapeHtml(tpin));
+  if(vat)idBits.push(t('doc.vatNo')+': '+escapeHtml(vat));
+
+  var meta=[];
+  if(addressLine)meta.push(addressLine);
+  var lineBits=[];
+  if(phone)lineBits.push(t('doc.tel')+': '+phone);
+  if(email)lineBits.push(email);
+  if(lineBits.length)meta.push(lineBits.join(' &nbsp;·&nbsp; '));
+
+  return ''+
+  '<header class="doc-head">'+
+    '<div class="doc-head-left">'+
+      '<div class="doc-biz-name">'+legal+'</div>'+
+      (trading?'<div class="doc-biz-trading">'+trading+'</div>':'')+
+      (idBits.length?'<div class="doc-biz-ids">'+idBits.join(' &nbsp;·&nbsp; ')+'</div>':'')+
+      (meta.length?'<div class="doc-biz-meta">'+meta.join('<br>')+'</div>':'')+
+    '</div>'+
+    '<div class="doc-head-right">'+
+      '<div class="doc-title">'+escapeHtml(opts.title||'Report')+'</div>'+
+      (opts.subtitle?'<div class="doc-subtitle">'+escapeHtml(opts.subtitle)+'</div>':'')+
+      (opts.dateRange?'<div class="doc-period">'+escapeHtml(opts.dateRange)+'</div>':'')+
+      '<div class="doc-currency">'+escapeHtml(t('print.currency',{currency:opts.currency||biz.currency||'MWK'}))+'</div>'+
+    '</div>'+
+  '</header>'+
+  '<div class="doc-rule"></div>';
+}
+
+/** Shared CSS for every printed document (A4, print-optimised). */
+function buildPrintStyles(){
+  return ''+
+  '@page{size:A4;margin:14mm 12mm}'+
+  '*{box-sizing:border-box}'+
+  'html,body{margin:0;padding:0;background:#fff;color:#111}'+
+  'body{font-family:'+PRINT_FONT_STACK+';font-size:11px;line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
+  '.doc{max-width:100%;padding:0}'+
+  '.doc-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}'+
+  '.doc-head-left{max-width:58%}'+
+  '.doc-head-right{text-align:right;max-width:42%}'+
+  '.doc-biz-name{font-size:19px;font-weight:800;letter-spacing:-.3px;line-height:1.2}'+
+  '.doc-biz-trading{font-size:12px;font-weight:600;color:#444;margin-top:1px}'+
+  '.doc-biz-ids{font-size:9.5px;color:#555;margin-top:4px}'+
+  '.doc-biz-meta{font-size:9.5px;color:#666;margin-top:2px;line-height:1.5}'+
+  '.doc-title{font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.6px}'+
+  '.doc-subtitle{font-size:11px;color:#333;margin-top:3px;font-weight:600}'+
+  '.doc-period{font-size:10px;color:#555;margin-top:3px}'+
+  '.doc-currency{font-size:9.5px;color:#888;margin-top:2px}'+
+  '.doc-rule{border-top:2px solid #111;margin:10px 0 14px}'+
+  'table.doc-table{width:100%;border-collapse:collapse;font-size:10.5px;page-break-inside:auto}'+
+  'table.doc-table thead{display:table-header-group}'+
+  'table.doc-table th{text-align:left;font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;padding:6px 8px;border-bottom:1.5px solid #111;background:#f2f2f2;white-space:nowrap}'+
+  'table.doc-table td{padding:5px 8px;border-bottom:.5px solid #ddd;vertical-align:top}'+
+  'table.doc-table tbody tr{page-break-inside:avoid}'+
+  'table.doc-table tbody tr:nth-child(even){background:#fafafa}'+
+  '.num{text-align:right;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";white-space:nowrap}'+
+  '.col-num{text-align:right}'+
+  '.row-section td{background:#e9ecea!important;font-weight:800;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;color:#222;padding:6px 8px;border-bottom:1px solid #bbb}'+
+  '.row-subtotal td{font-weight:700;background:#f6f7f6!important;border-top:1px solid #999;border-bottom:1px solid #999}'+
+  '.row-total td{font-weight:800;background:#eef1ef!important;border-top:1.5px solid #111;border-bottom:1.5px solid #111;font-size:11px}'+
+  '.row-grand td{font-weight:800;background:#e6ebe8!important;border-top:2px solid #111;border-bottom:2px solid #111;font-size:12px}'+
+  '.row-note td{color:#666;font-style:italic;border-bottom:none}'+
+  '.row-empty td{text-align:center;color:#888;padding:18px}'+
+  '.neg{color:#a32d2d}'+
+  '.pos{color:#0f6e56}'+
+  '.doc-summary{margin-top:14px;margin-left:auto;width:62%;page-break-inside:avoid}'+
+  '.doc-summary table{width:100%;border-collapse:collapse;font-size:10.5px}'+
+  '.doc-summary td{padding:4px 8px;border-bottom:.5px solid #ddd}'+
+  '.doc-summary tr.is-bold td{font-weight:800;border-top:1.5px solid #111;border-bottom:1.5px solid #111;font-size:11px}'+
+  '.doc-note{margin-top:14px;padding:8px 10px;border:1px solid #ddd;background:#fafafa;font-size:9.5px;color:#555;page-break-inside:avoid}'+
+  '.doc-footer{margin-top:16px;padding-top:8px;border-top:1px solid #ccc;display:flex;justify-content:space-between;font-size:8.5px;color:#777}'+
+  '.doc-sign{margin-top:26px;display:flex;justify-content:space-between;gap:40px;page-break-inside:avoid}'+
+  '.doc-sign div{flex:1;border-top:1px solid #999;padding-top:4px;font-size:9px;color:#666}'+
+  '.no-print{display:none}'+
+  '@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}';
+}
+
+/**
+ * printDocument — the single entry point used by every print action.
+ *
+ * @param {Object} o
+ * @param {string} o.title        Document title
+ * @param {string} [o.subtitle]
+ * @param {string} [o.dateRange]  e.g. "Period: 1 Jan 2026 to 31 Dec 2026"
+ * @param {Object} [o.business]   Business profile (defaults to currentBiz())
+ * @param {string} [o.currency]
+ * @param {string[]} [o.metaLines] Extra header lines
+ * @param {Object} [o.table]      {headers:[], rows:[[...]] , numericFrom: n}
+ * @param {Array}  [o.tables]     Multiple tables: [{title, headers, rows, numericFrom}]
+ * @param {Array}  [o.summary]    [{label, value, isBold, isGrand}]
+ * @param {string} [o.footerNote]
+ * @param {boolean}[o.signatures] Render signature lines
+ * @param {string} [o.filename]   Suggested filename (for the "Save as PDF" name)
+ */
+function printDocument(o){
+  o=o||{};
+  var biz=o.business||currentBiz()||{};
+  var currency=o.currency||biz.currency||'MWK';
+  var now=new Date();
+  var generated=now.toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+
+  var head=buildPrintBusinessHeader(biz,{
+    title:o.title||'Document',
+    subtitle:o.subtitle||'',
+    dateRange:o.dateRange||'',
+    currency:currency
+  });
+
+  var metaBlock='';
+  if(o.metaLines&&o.metaLines.length){
+    metaBlock='<div class="doc-note">'+o.metaLines.map(function(l){return escapeHtml(l);}).join('<br>')+'</div>';
+  }
+
+  function renderTable(tbl){
+    if(!tbl||!tbl.headers)return '';
+    var numericFrom=(tbl.numericFrom==null?tbl.headers.length:tbl.numericFrom);
+    var html='';
+    if(tbl.title)html+='<div class="doc-subtitle" style="margin:14px 0 6px">'+escapeHtml(tbl.title)+'</div>';
+    html+='<table class="doc-table"><thead><tr>';
+    tbl.headers.forEach(function(h,i){
+      html+='<th'+(i>=numericFrom?' class="col-num"':'')+'>'+escapeHtml(h)+'</th>';
+    });
+    html+='</tr></thead><tbody>';
+    var rows=asArray(tbl.rows);
+    if(!rows.length){
+      html+='<tr class="row-empty"><td colspan="'+tbl.headers.length+'">'+escapeHtml(t('doc.noData'))+'</td></tr>';
+    }
+    rows.forEach(function(row){
+      if(!row)return;
+      if(row.__section){
+        html+='<tr class="row-section"><td colspan="'+tbl.headers.length+'">'+escapeHtml(row.__section)+'</td></tr>';
+        return;
+      }
+      if(row.__note){
+        html+='<tr class="row-note"><td colspan="'+tbl.headers.length+'">'+escapeHtml(row.__note)+'</td></tr>';
+        return;
+      }
+      var rowCls=row.__total?'row-total':row.__grand?'row-grand':row.__subtotal?'row-subtotal':'';
+      html+='<tr'+(rowCls?' class="'+rowCls+'"':'')+'>';
+      var cells=asArray(row.cells||row);
+      for(var i=0;i<tbl.headers.length;i++){
+        var v=cells[i];
+        var isNum=(typeof v==='number'||(v&&v.__num));
+        var raw=isNum&&v&&v.__num?v.value:v;
+        if(isNum){
+          html+='<td class="num'+(typeof raw==='number'&&raw<0?' neg':'')+'">'+escapeHtml(typeof raw==='number'?fmt(raw,currency):String(raw))+'</td>';
+        } else {
+          html+='<td>'+escapeHtml(raw==null?'':raw)+'</td>';
+        }
+      }
+      html+='</tr>';
+    });
+    html+='</tbody></table>';
+    return html;
+  }
+
+  var tablesHtml='';
+  if(o.table)tablesHtml+=renderTable(o.table);
+  asArray(o.tables).forEach(function(tb){tablesHtml+=renderTable(tb);});
+
+  var summaryHtml='';
+  if(o.summary&&o.summary.length){
+    summaryHtml='<div class="doc-summary"><table>';
+    o.summary.forEach(function(s){
+      var cls=(s.isGrand||s.isBold)?'is-bold':'';
+      summaryHtml+='<tr'+(cls?' class="'+cls+'"':'')+'><td>'+escapeHtml(s.label)+'</td>'+
+        '<td class="num">'+escapeHtml(s.display!=null?s.display:(typeof s.value==='number'?fmt(s.value,currency):s.value))+'</td></tr>';
+    });
+    summaryHtml+='</table></div>';
+  }
+
+  var signHtml=o.signatures?('<div class="doc-sign"><div>'+escapeHtml(t('doc.preparedBy'))+'</div><div>'+escapeHtml(t('doc.reviewedBy'))+'</div><div>'+escapeHtml(t('doc.authorised'))+'</div></div>'):'';
+
+  var footerNote=o.footerNote?'<div class="doc-note">'+escapeHtml(o.footerNote)+'</div>':'';
+
+  var doc='<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'+
+    '<title>'+escapeHtml((o.title||'Document')+' — '+(biz.name||''))+'</title>'+
+    '<style>'+buildPrintStyles()+'</style></head><body>'+
+    '<div class="doc">'+
+      head+
+      metaBlock+
+      tablesHtml+
+      summaryHtml+
+      footerNote+
+      signHtml+
+      '<div class="doc-footer">'+
+        '<span>'+escapeHtml(biz.name||'')+'</span>'+
+        '<span>'+escapeHtml(t('print.generated'))+' '+escapeHtml(generated)+'</span>'+
+        '<span>Ledgr · '+escapeHtml(currency)+'</span>'+
+      '</div>'+
+    '</div>'+
+    '<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},250);};<\/script>'+
+    '</body></html>';
+
+  return _mountAndPrint(doc,o.filename||((o.title||'document').replace(/\s+/g,'_')+'.pdf'));
+}
+
+// Track the live print frame so we never stack iframes
+var _printFrame=null;
+var _printCleanupTimer=null;
+
+/**
+ * _mountAndPrint — injects the document into a hidden iframe and triggers the
+ * native print dialog once fonts/images are ready, then cleans up.
+ */
+function _mountAndPrint(docHtml,filename){
+  // Remove any previous frame
+  if(_printFrame){
+    try{_printFrame.remove();}catch(e){}
+    _printFrame=null;
+  }
+  var frame=document.createElement('iframe');
+  frame.setAttribute('aria-hidden','true');
+  frame.setAttribute('title','Print preview');
+  // Positioned off-screen (not display:none) — some browsers refuse to print
+  // documents inside a display:none iframe, which is a common blank-PDF cause.
+  frame.style.cssText='position:fixed;left:-10000px;top:0;width:820px;height:1180px;border:0;opacity:0;pointer-events:none;';
+  document.body.appendChild(frame);
+  _printFrame=frame;
+
+  var printed=false;
+  function trigger(){
+    if(printed)return;
+    printed=true;
+    try{
+      var win=frame.contentWindow;
+      win.focus();
+      win.print();
+    }catch(err){
+      console.error('[Ledgr] Print failed:',err);
+      showToast(t('msg.printFailed'),'error');
+    }
+    // Clean up after the dialog is dismissed
+    clearTimeout(_printCleanupTimer);
+    _printCleanupTimer=setTimeout(function(){
+      try{
+        if(_printFrame===frame){frame.remove();_printFrame=null;}
+      }catch(e){}
+    },1500);
+  }
+
+  try{
+    var idoc=frame.contentWindow.document;
+    idoc.open();
+    idoc.write(docHtml);
+    idoc.close();
+
+    // Wait for the document (and its fonts) before printing.
+    var win=frame.contentWindow;
+    var start=function(){
+      var fonts=(win.document.fonts&&win.document.fonts.ready);
+      if(fonts&&fonts.then){
+        fonts.then(function(){setTimeout(trigger,80);}).catch(function(){setTimeout(trigger,80);});
+      } else {
+        setTimeout(trigger,250);
+      }
+    };
+    if(win.document.readyState==='complete')start();
+    else frame.addEventListener('load',start,{once:true});
+    // Safety net: never hang silently
+    setTimeout(trigger,2500);
+  }catch(err){
+    console.error('[Ledgr] Could not build print document:',err);
+    showToast(t('msg.printPrepFailed'),'error');
+  }
+
+  if(filename)logActivity('Printed: '+filename);
+  return frame;
+}
+
+// ── REPORT → PRINT DOCUMENT ───────────────────────────
+// Translates the active report (currentReportData) into a print document.
+// Kept separate from exportCSV() so printing can use rich tables (section
+// headers, subtotals, sign colouring) that CSV cannot express.
+
+function _printDate(d){
+  if(!d)return '—';
+  try{
+    return new Date(d+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+  }catch(e){ return String(d); }
+}
+
+/** Shared shell: builds and fires a print document for a report type. */
+function printFinancialReport(o){ return printDocument(o); }
+
+function _reportDocMeta(d){
+  var dates=d.dates||{from:'',to:''};
+  var range='';
+  if(d.type==='bs'||d.type==='tb'){
+    range='As at: '+_printDate(d.asAt||dates.to);
+  } else if(dates.from||dates.to){
+    range='Period: '+_printDate(dates.from)+' to '+_printDate(dates.to);
+  }
+  return {from:dates.from,to:dates.to,range:range};
+}
+
+/** Profit & Loss */
+function _printPL(d){
+  var meta=_reportDocMeta(d);
+  var rows=[];
+  var incByCat={},expByCat={};
+  asArray(d.inc).forEach(function(r){if(r)incByCat[r.cat]=(incByCat[r.cat]||0)+(Number(r.amt)||0);});
+  asArray(d.exp).forEach(function(r){if(r)expByCat[r.cat]=(expByCat[r.cat]||0)+(Number(r.amt)||0);});
+  var totalInc=0,totalExp=0;
+  Object.keys(incByCat).forEach(function(k){totalInc+=incByCat[k];});
+  Object.keys(expByCat).forEach(function(k){totalExp+=expByCat[k];});
+
+  rows.push({__section:'Income'});
+  var incKeys=Object.keys(incByCat);
+  if(!incKeys.length)rows.push({__note:'No income recorded in this period.'});
+  incKeys.forEach(function(cat){rows.push({cells:[cat,incByCat[cat]]});});
+  rows.push({__subtotal:true,cells:['Total Income',totalInc]});
+
+  rows.push({__section:'Expenses'});
+  var expKeys=Object.keys(expByCat);
+  if(!expKeys.length)rows.push({__note:'No expenses recorded in this period.'});
+  expKeys.forEach(function(cat){rows.push({cells:[cat,expByCat[cat]]});});
+  rows.push({__subtotal:true,cells:['Total Expenses',totalExp]});
+
+  var net=totalInc-totalExp;
+  var margin=totalInc>0?((net/totalInc)*100).toFixed(1):'0.0';
+
+  printFinancialReport({
+    title:'Profit & Loss Statement',
+    subtitle:d.b.name,
+    dateRange:meta.range,
+    table:{headers:['Category',d.b.currency],rows:rows,numericFrom:1},
+    summary:[
+      {label:'Total Income',value:totalInc},
+      {label:'Total Expenses',value:totalExp},
+      {label:'Net Profit',value:net,isGrand:true},
+      {label:'Net Margin',display:margin+'%'}
+    ],
+    signatures:true,
+    filename:(d.b.name||'Business').replace(/\s+/g,'_')+'_ProfitLoss.pdf'
+  });
+}
+
+/** Balance Sheet */
+function _printBS(d){
+  var meta=_reportDocMeta(d);
+  var rows=[];
+  ['Asset','Liability','Equity'].forEach(function(type){
+    var accts=asArray(d.accounts).filter(function(a){return a&&a.type===type;});
+    if(!accts.length)return;
+    rows.push({__section:type+'s'});
+    var subtypes={};
+    accts.forEach(function(a){
+      var st=a.subtype||'Other';
+      if(!subtypes[st])subtypes[st]=[];
+      subtypes[st].push(a);
+    });
+    Object.keys(subtypes).forEach(function(st){
+      subtypes[st].sort(function(a,b){return parseInt(a.code)-parseInt(b.code);}).forEach(function(a){
+        rows.push({cells:[a.code,a.name,a.subtype||'',d.bsBalance(a)]});
+      });
+      var stTotal=subtypes[st].reduce(function(s,a){return s+d.bsBalance(a);},0);
+      rows.push({__subtotal:true,cells:['','Total '+st,'',stTotal]});
+    });
+  });
+
+  var balanced=Math.abs(d.totalAssets-(d.totalLiab+d.totalEquity))<1;
+  printFinancialReport({
+    title:'Balance Sheet',
+    subtitle:d.b.name,
+    dateRange:meta.range,
+    metaLines:[balanced?'Accounting equation balanced (Assets = Liabilities + Equity)':'⚠ Accounting equation OUT OF BALANCE by '+fmt(Math.abs(d.totalAssets-(d.totalLiab+d.totalEquity)))],
+    table:{
+      headers:['Code','Account','Sub-type',d.b.currency],
+      rows:rows,numericFrom:3
+    },
+    summary:[
+      {label:'Total Assets',value:d.totalAssets},
+      {label:'Total Liabilities',value:d.totalLiab},
+      {label:'Total Equity',value:d.totalEquity},
+      {label:'Liabilities + Equity',value:d.totalLiab+d.totalEquity,isGrand:true}
+    ],
+    signatures:true,
+    filename:(d.b.name||'Business').replace(/\s+/g,'_')+'_BalanceSheet.pdf'
+  });
+}
+
+/** Trial Balance */
+function _printTB(d){
+  var meta=_reportDocMeta(d);
+  var rows=[];
+  ['Asset','Liability','Equity','Income','Expense'].forEach(function(type){
+    var group=asArray((d.typeGroups||{})[type]);
+    if(!group.length)return;
+    rows.push({__section:type+'s'});
+    group.forEach(function(row){
+      var acct=row.acct||{name:row.code,type:type,subtype:'',normal:'debit'};
+      var isDebitNormal=(acct.type==='Asset'||acct.type==='Expense');
+      var net=isDebitNormal?row.dr-row.cr:row.cr-row.dr;
+      rows.push({cells:[
+        row.code,acct.name,acct.subtype||'',
+        row.dr,row.cr,
+        Math.abs(net)+(net!==0?(net>0?' DR':' CR'):'')
+      ]});
+    });
+    var gDR=group.reduce(function(s,r){return s+r.dr;},0);
+    var gCR=group.reduce(function(s,r){return s+r.cr;},0);
+    rows.push({__subtotal:true,cells:['','Total '+type+'s','',gDR,gCR,Math.abs(gDR-gCR)]});
+  });
+  rows.push({__total:true,cells:['','GRAND TOTAL','',d.grandDR,d.grandCR,Math.abs(d.grandDR-d.grandCR)]});
+
+  printFinancialReport({
+    title:'Trial Balance',
+    subtitle:d.b.name,
+    dateRange:meta.range,
+    metaLines:[d.tbBalanced?'✅ Trial balance is BALANCED (Total DR = Total CR)':'⚠ Trial balance is OUT OF BALANCE by '+fmt(Math.abs(d.grandDR-d.grandCR))],
+    table:{
+      headers:['Code','Account','Sub-type','Total DR','Total CR','Net Balance'],
+      rows:rows,numericFrom:3
+    },
+    summary:[
+      {label:'Total Debits',value:d.grandDR},
+      {label:'Total Credits',value:d.grandCR},
+      {label:d.tbBalanced?'Balanced':'Difference',value:d.tbBalanced?0:Math.abs(d.grandDR-d.grandCR),isGrand:true}
+    ],
+    signatures:true,
+    filename:(d.b.name||'Business').replace(/\s+/g,'_')+'_TrialBalance.pdf'
+  });
+}
+
+/** Statement of Cash Flows */
+function _printCF(d){
+  var meta=_reportDocMeta(d);
+  var rows=[];
+  [{label:'Operating Activities',s:d.operating},
+   {label:'Investing Activities',s:d.investing},
+   {label:'Financing Activities',s:d.financing}].forEach(function(sec){
+    var s=sec.s||{inflows:[],outflows:[]};
+    rows.push({__section:sec.label});
+    var inflowTotal=0,outflowTotal=0;
+    asArray(s.inflows).forEach(function(r){
+      inflowTotal+=(Number(r.amt)||0);
+      rows.push({cells:[_printDate(r.date),r.desc||'',r.cat||'',r.acct||'',Number(r.amt)||0]});
+    });
+    asArray(s.outflows).forEach(function(r){
+      outflowTotal+=(Number(r.amt)||0);
+      rows.push({cells:[_printDate(r.date),r.desc||'',r.cat||'',r.acct||'',-(Number(r.amt)||0)]});
+    });
+    if(!asArray(s.inflows).length&&!asArray(s.outflows).length){
+      rows.push({__note:'No cash movements in this section.'});
+    }
+    rows.push({__subtotal:true,cells:['','Total inflows','','',inflowTotal]});
+    rows.push({__subtotal:true,cells:['','Total outflows','','',-outflowTotal]});
+    rows.push({__total:true,cells:['','NET — '+sec.label,'','',inflowTotal-outflowTotal]});
+  });
+
+  printFinancialReport({
+    title:'Statement of Cash Flows',
+    subtitle:d.b.name,
+    dateRange:meta.range,
+    table:{headers:['Date','Description','Category','Account','Amount'],rows:rows,numericFrom:4},
+    summary:[
+      {label:'Net Operating Cash Flow',value:d.netOp},
+      {label:'Net Investing Cash Flow',value:d.netInv},
+      {label:'Net Financing Cash Flow',value:d.netFin},
+      {label:'Net Cash Movement',value:d.netCash,isBold:true},
+      {label:'Opening Cash Balance',value:d.openingCash},
+      {label:'Closing Cash Balance',value:d.closingCash,isGrand:true}
+    ],
+    footerNote:'Opening cash = Cash at Hand (1001) + Bank Account (1002) opening balances. Untagged transactions are classified by category keywords.',
+    signatures:true,
+    filename:(d.b.name||'Business').replace(/\s+/g,'_')+'_CashFlow.pdf'
+  });
+}
+
+/** VAT Return / Tax Summary */
+function _printTax(d){
+  var meta=_reportDocMeta(d);
+  var vatRows=[];
+  asArray(d.vatEntries).forEach(function(t){
+    vatRows.push({cells:[
+      _printDate(t.date),
+      t.desc||'',
+      t.txType==='output'?'Output tax':'Input tax',
+      t.auto?'Auto-tagged':'Manual',
+      Number(t.amount)||0
+    ]});
+  });
+  if(!vatRows.length)vatRows.push({__note:'No VAT transactions recorded in this period.'});
+  vatRows.push({__subtotal:true,cells:['','Output tax total','','',d.vatOutput]});
+  vatRows.push({__subtotal:true,cells:['','Input tax (claimable)','','',-d.vatInput]});
+  vatRows.push({__total:true,cells:['','Net VAT '+(d.vatNet>=0?'Payable':'Claimable'),'','',Math.abs(d.vatNet)]});
+  if(d.vatPaid)vatRows.push({cells:['','VAT payments made','','',-d.vatPaid]});
+
+  var otherRows=[
+    {cells:['PAYE','Pay As You Earn',d.payeLiab,d.payePaid,Math.max(0,d.payeLiab-d.payePaid),'Variable']},
+    {cells:['WHT','Withholding Tax',d.whtLiab,d.whtPaid,Math.max(0,d.whtLiab-d.whtPaid),'20%']},
+    {cells:['FBT','Fringe Benefits Tax',d.fbtLiab,d.fbtPaid,Math.max(0,d.fbtLiab-d.fbtPaid),'30%']},
+    {cells:['CIT','Corporate Income Tax',d.citEstimate,d.citPaid,Math.max(0,d.citEstimate-d.citPaid),d.citRate+'%']}
+  ];
+
+  printFinancialReport({
+    title:'VAT Return & Tax Summary',
+    subtitle:d.b.name,
+    dateRange:meta.range,
+    tables:[
+      {title:'VAT Reconciliation',headers:['Date','Description','Type','Source','Amount'],rows:vatRows,numericFrom:4},
+      {title:'Other Taxes Schedule',headers:['Code','Tax','Liability','Paid','Outstanding','Rate'],rows:otherRows,numericFrom:2}
+    ],
+    summary:[
+      {label:'Output VAT',value:d.vatOutput},
+      {label:'Input VAT (claimable)',value:-d.vatInput},
+      {label:'Net VAT '+(d.vatNet>=0?'Payable':'Claimable'),value:Math.abs(d.vatNet),isBold:true},
+      {label:'Total Tax Liability',value:d.totalLiab,isGrand:true}
+    ],
+    footerNote:'CIT is an estimate at '+d.citRate+'% of net profit of '+fmt(d.netProfit)+'. Figures are for management review, not a filed return.',
+    signatures:true,
+    filename:(d.b.name||'Business').replace(/\s+/g,'_')+'_VAT_TaxSummary.pdf'
+  });
+}
+
+/** Invoice (single document) */
+function _printInvoiceDoc(inv,b){
+  var sub=0,tax=0;
+  asArray(inv.lines).forEach(function(l){
+    var line=(Number(l.qty)||1)*(Number(l.price)||0);
+    sub+=line;tax+=line*((Number(l.tax)||0)/100);
+  });
+  var total=sub+tax;
+  var rows=asArray(inv.lines).map(function(l){
+    var line=(Number(l.qty)||1)*(Number(l.price)||0);
+    var t=line*((Number(l.tax)||0)/100);
+    return {cells:[l.name||'—',Number(l.qty)||1,Number(l.price)||0,(Number(l.tax)||0)+'%',line+t]};
+  });
+
+  printFinancialReport({
+    title:'Tax Invoice',
+    subtitle:inv.client?('Bill to: '+inv.client):'',
+    dateRange:'Invoice '+inv.id+' · Issued '+_printDate(inv.issued)+' · Due '+_printDate(inv.due),
+    metaLines:[
+      'Status: '+String(inv.status||'pending').toUpperCase(),
+      inv.notes?('Notes: '+inv.notes):''
+    ].filter(Boolean),
+    table:{
+      headers:['Description','Qty','Unit Price','Tax','Amount'],
+      rows:rows,numericFrom:1
+    },
+    summary:[
+      {label:'Subtotal',value:sub},
+      {label:'Tax',value:tax},
+      {label:'Total Due',value:total,isGrand:true}
+    ],
+    footerNote:'Please quote invoice number '+inv.id+' with your payment. Thank you for your business.',
+    signatures:true,
+    filename:'Invoice_'+(inv.id||'draft')+'.pdf'
+  });
+}
+
 // ── PRINT REPORT ──────────────────────────────────────
+// Every report prints through the standalone print engine, so the output is
+// identical in Chrome, Safari and Firefox with no blank pages.
 function printReport(){
-  if(!currentReportData){ showToast('No report loaded.','warning'); return; }
-  // Make print-only header visible
-  document.querySelectorAll('.print-only').forEach(function(el){ el.style.display='block'; });
-  window.print();
-  // Hide again after print dialog closes
-  setTimeout(function(){
-    document.querySelectorAll('.print-only').forEach(function(el){ el.style.display='none'; });
-  }, 500);
-  logActivity('Report printed: ' + (currentReportType||'unknown'));
+  if(!currentReportData){ showToast(t('msg.noReport'),'warning'); return; }
+  var d=currentReportData;
+  try{
+    if(d.type==='pl')          _printPL(d);
+    else if(d.type==='bs')     _printBS(d);
+    else if(d.type==='tb')     _printTB(d);
+    else if(d.type==='cf')     _printCF(d);
+    else if(d.type==='tax')    _printTax(d);
+    else if(d.type==='branch') _printBranch(d);
+    else if(d.type==='income') _printSimpleRows('Income Report',d,[
+      {key:'date',label:'Date',date:true},{key:'desc',label:'Description'},
+      {key:'cat',label:'Category'},{key:'product',label:'Product'},
+      {key:'amt',label:'Amount',num:true}
+    ]);
+    else if(d.type==='expenses') _printSimpleRows('Expense Report',d,[
+      {key:'date',label:'Date',date:true},{key:'desc',label:'Description'},
+      {key:'cat',label:'Category'},{key:'amt',label:'Amount',num:true}
+    ]);
+    else if(d.type==='invoices') _printSimpleRows('Invoice Ageing',d,[
+      {key:'id',label:'Invoice #'},{key:'client',label:'Client'},
+      {key:'issued',label:'Issued',date:true},{key:'due',label:'Due',date:true},
+      {key:'status',label:'Status'},{key:'amt',label:'Amount',num:true}
+    ]);
+    else if(d.type==='payroll') _printSimpleRows('Payroll Summary',d,[
+      {key:'name',label:'Employee'},{key:'role',label:'Role'},
+      {key:'dept',label:'Department'},
+      {key:'sal',label:'Monthly',num:true},
+      {key:'sal',label:'Annual',num:true,multiply:12}
+    ]);
+    else if(d.type==='transactions') _printSimpleRows('Transaction Ledger',d,[
+      {key:'date',label:'Date',date:true},{key:'type',label:'Type'},
+      {key:'desc',label:'Description'},{key:'cat',label:'Category'},
+      {key:'credit',label:'Credit',num:true},{key:'debit',label:'Debit',num:true}
+    ]);
+    else { showToast(t('msg.notPrintable'),'warning'); return; }
+  }catch(err){
+    console.error('[Ledgr] printReport failed:',err);
+    showToast('Could not prepare this report for printing.','error');
+    return;
+  }
+  logActivity('Report printed: ' + (d.type||'unknown'));
+}
+
+/** Generic row-based report printer (income, expenses, ageing, payroll, ledger). */
+function _printSimpleRows(title,d,cols){
+  var meta=_reportDocMeta(d);
+  var rows=asArray(d.rows).map(function(r){
+    var cells=cols.map(function(c){
+      if(c.num){
+        var v=r[c.key];
+        var n=(typeof v==='number')?v:(String(v||'').replace(/[^0-9.\-]/g,'')?Number(String(v).replace(/[^0-9.\-]/g,'')):'');
+        if(typeof n==='number'&&c.multiply)n=n*c.multiply;
+        return n;
+      }
+      if(c.date)return _printDate(r[c.key]);
+      var val=r[c.key];
+      return val==null?'':val;
+    });
+    return {cells:cells};
+  });
+  var numericFrom=cols.findIndex(function(c){return c.num;});
+  if(numericFrom<0)numericFrom=cols.length;
+
+  // Totals for reports whose last numeric column is an amount
+  var summary=[];
+  var lastNum=null;
+  for(var i=cols.length-1;i>=0;i--){ if(cols[i].num){lastNum=cols[i];break;} }
+  if(lastNum){
+    var total=asArray(d.rows).reduce(function(s,r){
+      var v=r[lastNum.key];
+      if(typeof v==='number')return s+v;
+      var n=Number(String(v==null?'':v).replace(/[^0-9.\-]/g,''));
+      return s+(isNaN(n)?0:n);
+    },0);
+    summary.push({label:'Total '+lastNum.label,value:total,isGrand:true});
+  }
+
+  printFinancialReport({
+    title:title,
+    subtitle:d.b&&d.b.name,
+    dateRange:meta.range,
+    table:{headers:cols.map(function(c){return c.label;}),rows:rows,numericFrom:numericFrom},
+    summary:summary,
+    signatures:true,
+    filename:((d.b&&d.b.name)||'Business').replace(/\s+/g,'_')+'_'+title.replace(/\s+/g,'_')+'.pdf'
+  });
+}
+
+/** Branch P&L comparison */
+function _printBranch(d){
+  var meta=_reportDocMeta(d);
+  var rows=asArray(d.branchData).map(function(item){
+    var br=item.br||{};
+    var pl=item.pl||{};
+    return {cells:[br.code||'',br.name||'',br.location||'',pl.rev||0,pl.exp||0,pl.net||0,(pl.margin||0)+'%']};
+  });
+  rows.push({__total:true,cells:['','ALL BRANCHES','',d.grandRev,d.grandExp,d.grandNet,d.grandMarg+'%']});
+
+  printFinancialReport({
+    title:'Branch P&L Comparison',
+    subtitle:d.b.name,
+    dateRange:meta.range,
+    table:{headers:['Code','Branch','Location','Revenue','Expenses','Net Profit','Margin'],rows:rows,numericFrom:3},
+    summary:[
+      {label:'Total Revenue',value:d.grandRev},
+      {label:'Total Expenses',value:d.grandExp},
+      {label:'Total Net Profit',value:d.grandNet,isGrand:true}
+    ],
+    footerNote:(d.untagInc>0||d.untagExp>0)
+      ?('Excluded untagged transactions: income '+fmt(d.untagInc)+', expenses '+fmt(d.untagExp)+'.')
+      :'',
+    signatures:true,
+    filename:(d.b.name||'Business').replace(/\s+/g,'_')+'_BranchPL.pdf'
+  });
 }
 
 // ── MOBILE SIDEBAR ───────────────────────────────────
