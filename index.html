@@ -2332,12 +2332,46 @@ textarea{resize:vertical;min-height:70px}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script>
-  (function(){emailjs.init({publicKey:'fxsuYDBstbV35gigu'});})();
+  (function(){
+    // The EmailJS CDN can be blocked (offline, corporate proxy, ad-blocker).
+    // Guard the init so a missing CDN never breaks app boot.
+    try{
+      if(typeof emailjs!=='undefined'&&emailjs&&emailjs.init){
+        emailjs.init({publicKey:'fxsuYDBstbV35gigu'});
+      } else {
+        console.warn('Ledgr: EmailJS unavailable — email features will fall back.');
+      }
+    }catch(e){ console.warn('Ledgr: EmailJS init failed',e); }
+  })();
 </script>
 <script>
 // ── STATE ──────────────────────────────────────────────
 var today=()=>new Date().toISOString().split('T')[0];
-var fmt=(n,cur)=>{var sym={MWK:'MWK ',USD:'$',ZAR:'R',KES:'KSh ',GBP:'£',EUR:'€'}[cur||currentBiz().currency]||'';return sym+Number(n).toLocaleString('en',{minimumFractionDigits:0,maximumFractionDigits:0});};
+// fmt() — null-safe currency formatter. Never throws: bad/missing amounts fall
+// back to 0, a bad/missing currency falls back to MWK, and any Intl failure
+// falls back to plain toLocaleString. Used by every finance page.
+var CURRENCY_SYMBOLS={MWK:'MWK ',USD:'$',ZAR:'R',KES:'KSh ',GBP:'£',EUR:'€'};
+function formatCurrency(amount,currency){
+  var safeAmount=(typeof amount==='number'&&isFinite(amount))?amount:(typeof amount==='string'&&amount.trim()!==''&&isFinite(Number(amount))?Number(amount):0);
+  var safeCurrency;
+  try{ safeCurrency=currency||(currentBiz()&&currentBiz().currency)||'MWK'; }catch(e){ safeCurrency='MWK'; }
+  if(!safeCurrency)safeCurrency='MWK';
+  try{
+    return new Intl.NumberFormat('en',{style:'currency',currency:safeCurrency,minimumFractionDigits:0,maximumFractionDigits:0}).format(safeAmount);
+  }catch(e){
+    // Unknown currency code or Intl unavailable — degrade gracefully.
+    var sym=CURRENCY_SYMBOLS[safeCurrency]||'';
+    try{
+      return sym+safeAmount.toLocaleString('en',{minimumFractionDigits:0,maximumFractionDigits:0});
+    }catch(e2){
+      return sym+String(safeAmount);
+    }
+  }
+}
+var fmt=(n,cur)=>formatCurrency(n,cur);
+// asArray() — defensive helper so callers never .map()/.filter()/.reduce() on
+// null/undefined query results.
+function asArray(v){return Array.isArray(v)?v:[];}
 
 // ── PERSISTENCE ───────────────────────────────────────
 
@@ -2345,7 +2379,13 @@ var fmt=(n,cur)=>{var sym={MWK:'MWK ',USD:'$',ZAR:'R',KES:'KSh ',GBP:'£',EUR:'�
 // Default empty businesses — populated either from localStorage or via onboarding.
 var businesses=[];
 var currentBizId=null;
-var currentBiz=()=>businesses.find(b=>b.id===currentBizId);
+var currentBiz=()=>{
+  var list=asArray(businesses);
+  var b=list.find(x=>x.id===currentBizId);
+  if(b)return b;
+  // Fallback keeps every render path null-safe: never return undefined.
+  return {id:currentBizId,name:'—',currency:'MWK',brand:'#1a7a52',income:[],expenses:[],invoices:[],payroll:[],products:[],inventory:[],accounts:[],movements:[],branches:[],taxSettings:[],taxTransactions:[],journal:[]};
+};
 
 // ── PERSISTENCE ─────────────────────────────────────
 var SB_DATA_KEY='sb_appdata';
@@ -3135,15 +3175,15 @@ function computeAccountBalance(acct){
 
 // ── GENERAL LEDGER ────────────────────────────────────
 function renderGeneralLedger(){
-  var journal=getJournal();
-  var accounts=getAccounts();
+  var journal=asArray(getJournal());
+  var accounts=asArray(getAccounts());
 
   // Populate account filter dropdown
   var acctFilterEl=document.getElementById('gl-filter-account');
   if(acctFilterEl&&acctFilterEl.options.length<=1){
     var usedCodes=new Set();
-    journal.forEach(function(e){e.entries.forEach(function(l){usedCodes.add(l.accountCode);});});
-    var usedAccts=accounts.filter(function(a){return usedCodes.has(a.code);});
+    journal.forEach(function(e){asArray(e&&e.entries).forEach(function(l){if(l&&l.accountCode)usedCodes.add(l.accountCode);});});
+    var usedAccts=accounts.filter(function(a){return a&&usedCodes.has(a.code);});
     acctFilterEl.innerHTML='<option value="">All accounts</option>'+usedAccts.map(function(a){
       return'<option value="'+a.code+'">'+a.code+' — '+a.name+'</option>';
     }).join('');
@@ -3156,8 +3196,9 @@ function renderGeneralLedger(){
 
   // Apply filters
   var filtered=journal.filter(function(e){
+    if(!e)return false;
     if(typeFilter&&e.sourceType!==typeFilter)return false;
-    if(acctFilter&&!e.entries.some(function(l){return l.accountCode===acctFilter;}))return false;
+    if(acctFilter&&!asArray(e.entries).some(function(l){return l&&l.accountCode===acctFilter;}))return false;
     if(q){
       var hay=(e.id+' '+e.description+' '+(e.ref||'')+' '+(e.sourceType||'')).toLowerCase();
       if(!hay.includes(q.toLowerCase()))return false;
@@ -3175,11 +3216,13 @@ function renderGeneralLedger(){
   // Compute debit/credit totals per account from the full journal (not filtered)
   var tbMap={};
   journal.forEach(function(e){
-    e.entries.forEach(function(leg){
+    asArray(e&&e.entries).forEach(function(leg){
+      if(!leg)return;
       var code=leg.accountCode;
+      if(code==null)return;
       if(!tbMap[code])tbMap[code]={code:code,dr:0,cr:0};
-      tbMap[code].dr+=leg.debit||0;
-      tbMap[code].cr+=leg.credit||0;
+      tbMap[code].dr+=(Number(leg.debit)||0);
+      tbMap[code].cr+=(Number(leg.credit)||0);
     });
   });
   var tbRows=Object.values(tbMap).sort(function(a,b){return parseInt(a.code)-parseInt(b.code);});
@@ -3209,7 +3252,7 @@ function renderGeneralLedger(){
         '<th style="padding:6px 10px;text-align:right">Net balance</th>'+
       '</tr></thead><tbody>';
       tbRows.forEach(function(row){
-        var acct=accounts.find(function(a){return a.code===row.code;})||{name:row.code,type:'?',normal:'debit'};
+        var acct=accounts.find(function(a){return a&&a.code===row.code;})||{name:row.code,type:'?',normal:'debit'};
         var isDebitNormal=acct.type==='Asset'||acct.type==='Expense';
         var net=isDebitNormal?row.dr-row.cr:row.cr-row.dr;
         var netColor=net>0?'#1a7a52':net<0?'#c0392b':'#aaa';
@@ -3252,24 +3295,27 @@ function renderGeneralLedger(){
   var typeBgs={income:'#e1f5ee',expense:'#faeeda',invoice:'#f0f8ff',payroll:'#f5f4ff',tax:'#fcebeb',inventory:'#e0f5ef',reversal:'#f5f5f5',manual:'#f5f5f5'};
 
   tbody.innerHTML=filtered.slice().reverse().map(function(entry){
+    var legs=asArray(entry&&entry.entries);
+    var description=String((entry&&entry.description)!=null?entry.description:'');
     var tc=typeColors[entry.sourceType]||'#555';
     var tb=typeBgs[entry.sourceType]||'#f5f5f5';
-    var totalDRe=entry.entries.reduce(function(s,l){return s+(l.debit||0);},0);
-    var totalCRe=entry.entries.reduce(function(s,l){return s+(l.credit||0);},0);
+    var totalDRe=legs.reduce(function(s,l){return s+(Number(l&&l.debit)||0);},0);
+    var totalCRe=legs.reduce(function(s,l){return s+(Number(l&&l.credit)||0);},0);
     var isBalanced=Math.abs(totalDRe-totalCRe)<0.01;
 
     // Build legs summary (compact — show first 2 legs + count)
-    var legsSummary=entry.entries.slice(0,2).map(function(l){
-      var acct=accounts.find(function(a){return a.code===l.accountCode;})||{name:l.accountCode};
-      return(l.debit>0?'DR ':'CR ')+l.accountCode+' '+acct.name.split(' ').slice(0,2).join(' ');
-    }).join(' / ')+(entry.entries.length>2?' +'+( entry.entries.length-2)+' more':'');
+    var legsSummary=legs.slice(0,2).map(function(l){
+      if(!l)return '';
+      var acct=accounts.find(function(a){return a&&a.code===l.accountCode;})||{name:l.accountCode};
+      return(l.debit>0?'DR ':'CR ')+l.accountCode+' '+String(acct.name==null?'':acct.name).split(' ').slice(0,2).join(' ');
+    }).filter(Boolean).join(' / ')+(legs.length>2?' +'+(legs.length-2)+' more':'');
 
-    return'<tr style="border-bottom:1px solid #f5f5f5;'+(entry.description.startsWith('Reversal')?'opacity:0.7':'')+'"'+
-      ' title="'+entry.description+'"'+'>'+
+    return'<tr style="border-bottom:1px solid #f5f5f5;'+(description.indexOf('Reversal')===0?'opacity:0.7':'')+'"'+
+      ' title="'+description+'"'+'>'+
       '<td style="padding:8px 10px;font-family:monospace;font-size:11px;font-weight:700;color:#555">'+entry.id+'</td>'+
       '<td style="padding:8px 10px;color:#888;font-size:12px">'+entry.date+'</td>'+
       '<td style="padding:8px 10px">'+
-        '<div style="font-weight:600;font-size:13px">'+entry.description+'</div>'+
+        '<div style="font-weight:600;font-size:13px">'+description+'</div>'+
         '<div style="font-size:11px;color:#aaa;margin-top:2px">'+legsSummary+'</div>'+
         (entry.ref?'<div style="font-size:10px;color:#ccc">Ref: '+entry.ref+'</div>':'')+
       '</td>'+
@@ -3446,20 +3492,93 @@ function resetFilters(prefix){
 // ── NAV ───────────────────────────────────────────────
 function renderAll(){
   // Single source of truth — called by showApp, switchBusiness, and anywhere all pages need refreshing.
-  renderDash();
-  renderIncome();renderExpenses();renderInvoices();renderPayroll();renderProducts();renderInventory();renderCoA();renderTax();renderBranches();renderGeneralLedger();
-  populateAccountDropdowns();
-  updateBranchDropdowns();
-  checkTaxAlerts();
+  // Each renderer is isolated so one failing section cannot blank the whole app.
+  var steps={
+    dashboard:renderDash,
+    income:renderIncome,expenses:renderExpenses,invoices:renderInvoices,
+    payroll:renderPayroll,products:renderProducts,inventory:renderInventory,
+    coa:renderCoA,tax:renderTax,branches:renderBranches,gl:renderGeneralLedger,
+    dropdowns:populateAccountDropdowns,branchDropdowns:updateBranchDropdowns,
+    taxAlerts:checkTaxAlerts
+  };
+  Object.keys(steps).forEach(function(key){
+    var fn=steps[key];
+    if(typeof fn!=='function')return;
+    if(FINANCE_SECTIONS[key]&&key!=='dashboard'){SectionErrorBoundary(key,'Finance');return;}
+    try{fn();}
+    catch(err){console.error('[Ledgr] renderAll: "'+key+'" failed:',err);}
+  });
 }
 function showPage(id,el){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
-  document.getElementById('page-'+id).classList.add('active');
+  var pageEl=document.getElementById('page-'+id);
+  if(!pageEl)return;
+  pageEl.classList.add('active');
   if(el)el.classList.add('active');
   renderPage(id);
 }
-function renderPage(id){
+
+// ── SECTION ERROR BOUNDARY ────────────────────────────
+// Each finance page render is wrapped so a failure in one section can never
+// take down the whole app. Instead the affected section shows a clean inline
+// banner with a Retry button.
+
+/**
+ * SectionErrorBoundary — runs a page renderer inside a containment boundary.
+ * @param {string} id    page id (e.g. 'income')
+ * @param {string} title boundary title shown in the error banner
+ */
+function SectionErrorBoundary(id,title){
+  try{
+    renderPageCore(id);
+    return true;
+  }catch(err){
+    console.error('[Ledgr] Section "'+(title||'Finance')+'" failed to render ('+id+'):',err);
+    showSectionError(id,title,err);
+    return false;
+  }
+}
+
+/** Escape a string for safe insertion into HTML. */
+function escapeHtml(str){
+  return String(str==null?'':str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/**
+ * showSectionError — renders a clean inline error banner with a Retry button
+ * in place of the failed section, instead of throwing to the global handler.
+ */
+function showSectionError(id,title,err){
+  var pageEl=document.getElementById('page-'+id);
+  if(!pageEl)return;
+  var msg=(err&&err.message)?err.message:'Unknown error';
+  var old=pageEl.querySelector('[data-section-error="'+id+'"]');
+  if(old)old.remove();
+  var banner=document.createElement('div');
+  banner.setAttribute('data-section-error',id);
+  banner.style.cssText='margin:14px 0;padding:14px 16px;border:1px solid #f5c6c6;background:#fcebeb;border-radius:10px;color:#c0392b;font-size:13px;display:flex;align-items:center;gap:12px;flex-wrap:wrap';
+  banner.innerHTML=
+    '<span style="flex:1;min-width:220px"><strong>'+escapeHtml(title||'Finance')+
+    ' could not be displayed.</strong> <span style="color:#8a4b4b">'+escapeHtml(msg)+'</span></span>'+
+    '<button class="btn btn-sm" style="background:#c0392b;color:#fff;border-color:#c0392b" '+
+    'onclick="retrySection(\''+id+'\')">Retry</button>';
+  pageEl.insertBefore(banner,pageEl.firstChild);
+}
+
+/** retrySection — clears the error banner and re-renders just that page. */
+function retrySection(id){
+  var pageEl=document.getElementById('page-'+id);
+  if(pageEl){
+    var banner=pageEl.querySelector('[data-section-error="'+id+'"]');
+    if(banner)banner.remove();
+  }
+  renderPage(id);
+}
+
+function renderPageCore(id){
   if(id==='dashboard')renderDash();
   else if(id==='income')renderIncome();
   else if(id==='expenses')renderExpenses();
@@ -3477,6 +3596,17 @@ function renderPage(id){
     if(bizName)bizName.textContent=currentBiz().name;
     renderAIThread();
   }
+}
+
+// Finance pages that must be wrapped in a section boundary.
+var FINANCE_SECTIONS={income:1,expenses:1,invoices:1,coa:1,gl:1};
+
+function renderPage(id){
+  if(FINANCE_SECTIONS[id]){
+    SectionErrorBoundary(id,'Finance');
+    return;
+  }
+  renderPageCore(id);
 }
 
 // ── BRAND ─────────────────────────────────────────────
@@ -3674,8 +3804,8 @@ function renderProducts(){
     </div>`).join('');
 }
 function updateProductDropdowns(){
-  var prods=currentBiz().products;
-  var opts='<option value="">— none —</option>'+prods.map(p=>`<option value="${p.name}">${p.name}</option>`).join('');
+  var prods=asArray(currentBiz().products);
+  var opts='<option value="">— none —</option>'+prods.filter(Boolean).map(p=>`<option value="${p.name}">${p.name}</option>`).join('');
   ['inc-product'].forEach(id=>{var el=document.getElementById(id);if(el)el.innerHTML=opts;});
 }
 
@@ -3687,8 +3817,8 @@ function editIncome(realIdx){
   document.getElementById('ei-date').value=r.date;
   document.getElementById('ei-desc').value=r.desc;
   document.getElementById('ei-amt').value=r.amt;
-  var prods=currentBiz().products;
-  var opts='<option value="">— none —</option>'+prods.map(p=>`<option value="${p.name}">${p.name}</option>`).join('');
+  var prods=asArray(currentBiz().products);
+  var opts='<option value="">— none —</option>'+prods.filter(Boolean).map(p=>`<option value="${p.name}">${p.name}</option>`).join('');
   document.getElementById('ei-product').innerHTML=opts;
   document.getElementById('ei-product').value=r.product||'';
   document.getElementById('ei-cat').value=r.cat;
@@ -3905,29 +4035,35 @@ async function deleteIncome(i){
   showToast('Income record deleted.','info');
 }
 function renderIncome(){
-  var all=currentBiz().income;
+  var all=asArray(currentBiz().income);
   var q=(document.getElementById('inc-search')||{}).value||'';
   var cat=(document.getElementById('inc-filter-cat')||{}).value||'';
   var from=(document.getElementById('inc-filter-from')||{}).value||'';
   var to=(document.getElementById('inc-filter-to')||{}).value||'';
   var data=all.filter(r=>{
-    if(q&&!r.desc.toLowerCase().includes(q.toLowerCase())&&!(r.product||'').toLowerCase().includes(q.toLowerCase()))return false;
+    if(!r)return false;
+    var desc=String(r.desc==null?'':r.desc).toLowerCase();
+    var prod=String(r.product==null?'':r.product).toLowerCase();
+    if(q&&!desc.includes(q.toLowerCase())&&!prod.includes(q.toLowerCase()))return false;
     if(cat&&r.cat!==cat)return false;
     if(from&&r.date<from)return false;
     if(to&&r.date>to)return false;
     return true;
   });
-  var filteredTotal=data.reduce((s,r)=>s+r.amt,0);
-  var allTotal=all.reduce((s,r)=>s+r.amt,0);
+  var filteredTotal=data.reduce((s,r)=>s+(Number(r&&r.amt)||0),0);
+  var allTotal=all.reduce((s,r)=>s+(Number(r&&r.amt)||0),0);
   var isFiltered=q||cat||from||to;
-  document.getElementById('inc-total').textContent=isFiltered
+  var totalEl=document.getElementById('inc-total');
+  if(totalEl)totalEl.textContent=isFiltered
     ?'Showing: '+fmt(filteredTotal)+' of '+fmt(allTotal)
     :'Total: '+fmt(allTotal);
   var countEl=document.getElementById('inc-filter-count');
   if(countEl)countEl.textContent=isFiltered?data.length+' of '+all.length+' records':'';
   // reversed indices still map to original array positions
   var reversed=all.slice().reverse();
-  document.getElementById('income-table').innerHTML=data.length?reversed
+  var tableEl=document.getElementById('income-table');
+  if(!tableEl)return;
+  tableEl.innerHTML=data.length?reversed
     .map((r,ri)=>{
       var origIdx=all.length-1-ri;
       if(!data.includes(r))return'';
@@ -3976,28 +4112,33 @@ async function deleteExpense(i){
   showToast('Expense record deleted.','info');
 }
 function renderExpenses(){
-  var all=currentBiz().expenses;
+  var all=asArray(currentBiz().expenses);
   var q=(document.getElementById('exp-search')||{}).value||'';
   var cat=(document.getElementById('exp-filter-cat')||{}).value||'';
   var from=(document.getElementById('exp-filter-from')||{}).value||'';
   var to=(document.getElementById('exp-filter-to')||{}).value||'';
   var data=all.filter(r=>{
-    if(q&&!r.desc.toLowerCase().includes(q.toLowerCase()))return false;
+    if(!r)return false;
+    var desc=String(r.desc==null?'':r.desc).toLowerCase();
+    if(q&&!desc.includes(q.toLowerCase()))return false;
     if(cat&&r.cat!==cat)return false;
     if(from&&r.date<from)return false;
     if(to&&r.date>to)return false;
     return true;
   });
-  var filteredTotal=data.reduce((s,r)=>s+r.amt,0);
-  var allTotal=all.reduce((s,r)=>s+r.amt,0);
+  var filteredTotal=data.reduce((s,r)=>s+(Number(r&&r.amt)||0),0);
+  var allTotal=all.reduce((s,r)=>s+(Number(r&&r.amt)||0),0);
   var isFiltered=q||cat||from||to;
-  document.getElementById('exp-total').textContent=isFiltered
+  var totalEl=document.getElementById('exp-total');
+  if(totalEl)totalEl.textContent=isFiltered
     ?'Showing: '+fmt(filteredTotal)+' of '+fmt(allTotal)
     :'Total: '+fmt(allTotal);
   var countEl=document.getElementById('exp-filter-count');
   if(countEl)countEl.textContent=isFiltered?data.length+' of '+all.length+' records':'';
   var reversed=all.slice().reverse();
-  document.getElementById('expense-table').innerHTML=data.length?reversed
+  var tableEl=document.getElementById('expense-table');
+  if(!tableEl)return;
+  tableEl.innerHTML=data.length?reversed
     .map((r,ri)=>{
       var origIdx=all.length-1-ri;
       if(!data.includes(r))return'';
@@ -4036,8 +4177,8 @@ function prefillInvoiceLine(pid){
 function addInvoiceLine(){invoiceLines.push({name:'',qty:1,price:0,tax:0});renderInvoiceLines();calcInvoiceTotals();}
 function removeInvoiceLine(i){invoiceLines.splice(i,1);renderInvoiceLines();calcInvoiceTotals();}
 function renderInvoiceLines(){
-  var prods=currentBiz().products;
-  var opts='<option value="">Custom...</option>'+prods.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  var prods=asArray(currentBiz().products);
+  var opts='<option value="">Custom...</option>'+prods.filter(Boolean).map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   document.getElementById('ib-lines').innerHTML=invoiceLines.map((l,i)=>`
     <div class="inv-line-row">
       <div>
@@ -4371,25 +4512,31 @@ async function sendInvoiceEmail(){
   }
 }
 function renderInvoices(){
-  var all=currentBiz().invoices;
-  var paid=all.filter(i=>i.status==='paid').reduce((s,r)=>s+r.amt,0);
-  var pending=all.filter(i=>i.status==='pending').reduce((s,r)=>s+r.amt,0);
-  var overdue=all.filter(i=>i.status==='overdue').reduce((s,r)=>s+r.amt,0);
-  document.getElementById('invoice-summary-cards').innerHTML=`
+  var all=asArray(currentBiz().invoices);
+  var paid=all.filter(i=>i&&i.status==='paid').reduce((s,r)=>s+(Number(r.amt)||0),0);
+  var pending=all.filter(i=>i&&i.status==='pending').reduce((s,r)=>s+(Number(r.amt)||0),0);
+  var overdue=all.filter(i=>i&&i.status==='overdue').reduce((s,r)=>s+(Number(r.amt)||0),0);
+  var cardsEl=document.getElementById('invoice-summary-cards');
+  if(cardsEl)cardsEl.innerHTML=`
     <div class="card"><div class="card-label">Paid</div><div class="card-value green">${fmt(paid)}</div></div>
     <div class="card"><div class="card-label">Pending</div><div class="card-value amber">${fmt(pending)}</div></div>
     <div class="card"><div class="card-label">Overdue</div><div class="card-value red">${fmt(overdue)}</div></div>`;
   var q=(document.getElementById('inv-filter-search')||{}).value||'';
   var status=(document.getElementById('inv-filter-status')||{}).value||'';
   var data=all.filter(r=>{
-    if(q&&!r.client.toLowerCase().includes(q.toLowerCase())&&!r.id.toLowerCase().includes(q.toLowerCase()))return false;
+    if(!r)return false;
+    var client=String(r.client==null?'':r.client).toLowerCase();
+    var id=String(r.id==null?'':r.id).toLowerCase();
+    if(q&&!client.includes(q.toLowerCase())&&!id.includes(q.toLowerCase()))return false;
     if(status&&r.status!==status)return false;
     return true;
   });
   var countEl=document.getElementById('inv-filter-count');
   var isFiltered=q||status;
   if(countEl)countEl.textContent=isFiltered?data.length+' of '+all.length+' invoices':'';
-  document.getElementById('invoice-table').innerHTML=data.length?data.map(r=>`
+  var tableEl=document.getElementById('invoice-table');
+  if(!tableEl)return;
+  tableEl.innerHTML=data.length?data.map(r=>`
     <tr style="cursor:pointer" onclick="viewInvoice('${r.id}')">
       <td style="font-weight:700">${r.id}</td>
       <td>${r.client}</td>
@@ -5548,13 +5695,13 @@ function getAccounts(){return currentBiz().accounts||(currentBiz().accounts=defa
 
 // Populate every account <select> in the current page with relevant CoA accounts
 function populateAccountDropdowns(){
-  var accounts=getAccounts();
+  var accounts=asArray(getAccounts()).filter(Boolean);
   var incomeAccts=accounts.filter(function(a){return a.type==='Income'||a.type==='Asset';});
   var expenseAccts=accounts.filter(function(a){return a.type==='Expense'||a.type==='Liability';});
   var allAccts=accounts;
 
   function buildOpts(list){
-    return'<option value="">— none —</option>'+list.map(function(a){
+    return'<option value="">— none —</option>'+asArray(list).map(function(a){
       return'<option value="'+a.code+'">'+a.code+' — '+a.name+'</option>';
     }).join('');
   }
@@ -5594,24 +5741,26 @@ var COA_TYPE_ORDER=['Asset','Liability','Equity','Income','Expense'];
 function computeAccountBalance(acct){
   var b=currentBiz();
   var txTotal=0;
+  if(!acct)return 0;
   // Income entries tagged to this account
-  (b.income||[]).forEach(function(r){
-    if(r.accountCode&&String(r.accountCode)===String(acct.code)) txTotal+=r.amt;
+  asArray(b.income).forEach(function(r){
+    if(r&&r.accountCode&&String(r.accountCode)===String(acct.code)) txTotal+=(Number(r.amt)||0);
   });
   // Expense entries tagged to this account
-  (b.expenses||[]).forEach(function(r){
-    if(r.accountCode&&String(r.accountCode)===String(acct.code)) txTotal+=r.amt;
+  asArray(b.expenses).forEach(function(r){
+    if(r&&r.accountCode&&String(r.accountCode)===String(acct.code)) txTotal+=(Number(r.amt)||0);
   });
-  return (acct.balance||0)+txTotal;
+  return (Number(acct.balance)||0)+txTotal;
 }
 
 function renderCoA(){
-  var accounts=getAccounts();
+  var accounts=asArray(getAccounts());
   var q=(document.getElementById('coa-search')||{}).value||'';
   var typeFilter=(document.getElementById('coa-filter-type')||{}).value||'';
 
   // Apply filters
   var filtered=accounts.filter(function(a){
+    if(!a)return false;
     if(q){
       var hay=(a.code+' '+a.name+' '+(a.desc||'')+' '+(a.subtype||'')).toLowerCase();
       if(!hay.includes(q.toLowerCase()))return false;
@@ -5629,6 +5778,7 @@ function renderCoA(){
   var totals={};
   COA_TYPE_ORDER.forEach(function(t){totals[t]=0;});
   accounts.forEach(function(a){
+    if(!a)return;
     var bal=computeAccountBalance(a);
     if(totals[a.type]!==undefined)totals[a.type]+=bal;
   });
@@ -5638,7 +5788,7 @@ function renderCoA(){
   if(cardsEl){
     cardsEl.innerHTML=COA_TYPE_ORDER.map(function(t){
       var m=COA_TYPE_META[t];
-      var cnt=accounts.filter(function(a){return a.type===t;}).length;
+      var cnt=accounts.filter(function(a){return a&&a.type===t;}).length;
       var bal=totals[t];
       return'<div class="card">'+
         '<div class="card-label">'+m.icon+' '+m.label+'</div>'+
@@ -5668,9 +5818,9 @@ function renderCoA(){
   html+='<div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:10px;margin-bottom:14px;font-size:13px;font-weight:600;'+(balanced?'background:#e1f5ee;color:#1a7a52;border:1px solid #b6e8d3':'background:#fcebeb;color:#c0392b;border:1px solid #f5c6c6')+'">'+(balanced?'✅':'⚠️')+' Accounting equation: Assets ('+fmt(assets)+') = Liabilities + Equity ('+fmt(liabEquity)+')'+(balanced?' — Balanced':' — Out of balance by '+fmt(Math.abs(assets-liabEquity)))+'</div>';
 
   COA_TYPE_ORDER.forEach(function(type){
-    var group=filtered.filter(function(a){return a.type===type;});
+    var group=filtered.filter(function(a){return a&&a.type===type;});
     if(!group.length)return;
-    var m=COA_TYPE_META[type];
+    var m=COA_TYPE_META[type]||{icon:'',label:type,color:'#555',bg:'#f5f5f5'};
     var groupTotal=group.reduce(function(s,a){return s+computeAccountBalance(a);},0);
 
     html+='<div class="table-card" style="margin-bottom:14px">';
@@ -6463,9 +6613,7 @@ function updateAITurnCount(){
   el.textContent=turns?`${turns} exchange${turns!==1?'s':''} in this conversation`:'';
 }
 
-function escapeHtml(str){
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+// escapeHtml() is defined once, in the SECTION ERROR BOUNDARY block above.
 
 function clearAIChat(){
   aiHistory=[];
@@ -6530,6 +6678,9 @@ var EJS_TEMPLATE='template_s4bipv8';
 
 async function sendOTPEmail(toEmail, toName, otp){
   try {
+    if(typeof emailjs==='undefined'||!emailjs||!emailjs.send){
+      return {ok:false, error:'Email service unavailable'};
+    }
     var result = await emailjs.send(EJS_SERVICE, EJS_TEMPLATE, {
       email: toEmail,
       otp_code: otp
@@ -6590,32 +6741,15 @@ async function showApp() {
     var el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
-  async function showApp() {
-
-  ['screen-login','screen-register','screen-2fa',
-   'screen-forgot','screen-onboarding'].forEach(function(id){
-    var el = document.getElementById(id);
-    if (el) el.style.display = 'none';
-  });
-
-  // Get current session
   var session = getSession();
-
-  // Check admin/accountant role
-  var isAdmin = session &&
-    (session.role === 'admin' || session.role === 'accountant');
+  if (!session) { showScreen('screen-login'); return; }
 
   // Show User Management nav only for admins/accountants
   var navUserMgmt = document.getElementById('nav-usermgmt');
-
   if (navUserMgmt) {
-    navUserMgmt.style.display = isAdmin ? 'flex' : 'none';
+    var isUserMgmtAllowed = session.role === 'admin' || session.role === 'accountant';
+    navUserMgmt.style.display = isUserMgmtAllowed ? 'flex' : 'none';
   }
-
-}
-
-  var session = getSession();
-  if (!session) { showScreen('screen-login'); return; }
 
   var appEl = document.getElementById('app-layout');
   if (appEl) appEl.style.display = 'grid';
@@ -8627,26 +8761,6 @@ async function doLogin() {
   saveSession(session, remember);
   logActivity('Successful login');
   showApp();
-}
-
-  loginAttempts = 0; lockedUntil = null;
-  pendingUser = result.user;
-
-  // Generate OTP and trigger 2FA (unchanged from original)
-  otpCode   = String(Math.floor(100000 + Math.random() * 900000));
-  otpExpiry = Date.now() + 300000;
-  document.getElementById('twofa-sub').textContent = 'Sending code to ' + email + '…';
-  setupOTPInputs(); startOTPCountdown(); showScreen('screen-2fa');
-  logActivity('2FA triggered: ' + email);
-
-  sendOTPEmail(email, result.user.firstName + ' ' + result.user.lastName, otpCode).then(function(res) {
-    if (res.ok) {
-      document.getElementById('twofa-sub').textContent = 'Code sent to ' + email + '. Check your inbox (and spam folder).';
-    } else {
-      document.getElementById('twofa-sub').textContent = 'Email delivery failed. Use code: ' + otpCode + ' (demo fallback)';
-      showAuthError('twofa-error', 'Could not send email. Using fallback code shown above.');
-    }
-  });
 }
 
 /**
